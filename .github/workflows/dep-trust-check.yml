@@ -102,3 +102,81 @@ jobs:
           script: |
             const fn = require('./.github/scripts/post-trust-comment.js');
             await fn({ github, context });
+
+  # ── Quorum override job ───────────────────────────────────────────────────
+  # Runs only when validate fails due to a blocked or quarantined package.
+  # Downloads the trust-result artifact, then runs the Discord quorum engine.
+  # The job polls Discord for reactions until simple majority or deadline.
+  # Exit 0 (approved) marks the PR check green; exit 1 keeps it red.
+  #
+  # Required secrets:
+  #   DISCORD_BOT_TOKEN       Bot token (SEND_MESSAGES, ADD_REACTIONS,
+  #                           READ_MESSAGE_HISTORY, MANAGE_MESSAGES, EMBED_LINKS)
+  #   DISCORD_CHANNEL_ID      Channel ID for quorum embeds
+  #   DISCORD_GUILD_ID        Server (guild) ID
+  #   SHEETS_CREDENTIALS      Base64-encoded Google service account JSON
+  #                           (encode with: base64 -w0 service-account.json)
+  #   SHEETS_SPREADSHEET_ID   Spreadsheet ID for audit log
+  #
+  # Required repo file:
+  #   .github/quorum-config.json   Members array + threshold + deadlineHours
+
+  quorum-override:
+    name: Quorum override — ${{ matrix.package }}@${{ matrix.version }}
+    needs: [detect-changes, validate]
+    runs-on: ubuntu-latest
+    # Only trigger when validate has failed AND packages were detected.
+    # result == 'failure' is set when Enforce trust outcome exits 1.
+    if: |
+      needs.validate.result == 'failure' &&
+      needs.detect-changes.outputs.packages != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download trust result artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: >-
+            trust-result-${{ matrix.ecosystem }}-${{ matrix.package }}-${{ matrix.version }}
+          path: .
+
+      # Skip packages that passed trust validation — only run quorum on
+      # blocked/quarantined outcomes.
+      - name: Check if quorum is needed
+        id: check
+        run: |
+          outcome=$(jq -r .outcome trust-result.json)
+          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
+          if [[ "$outcome" == "blocked" || "$outcome" == "quarantined" ]]; then
+            echo "needed=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run quorum engine
+        if: steps.check.outputs.needed == 'true'
+        env:
+          # Discord
+          DISCORD_BOT_TOKEN:   ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID:  ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_GUILD_ID:    ${{ secrets.DISCORD_GUILD_ID }}
+          # Google Sheets audit log
+          SHEETS_CREDENTIALS:     ${{ secrets.SHEETS_CREDENTIALS }}
+          SHEETS_SPREADSHEET_ID:  ${{ secrets.SHEETS_SPREADSHEET_ID }}
+          # GitHub context (passed explicitly so the script can comment on the PR)
+          GITHUB_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER:       ${{ github.event.pull_request.number }}
+          GITHUB_RUN_ID:   ${{ github.run_id }}
+          # Optional runtime overrides (can also be set in quorum-config.json)
+          # QUORUM_MEMBERS:         "111,222,333"
+          # QUORUM_THRESHOLD:       "0.5"
+          # QUORUM_DEADLINE_HOURS:  "24"
+        run: node .github/scripts/quorum-engine.js
+        # Timeout slightly under Actions job limit; quorum deadline should be
+        # shorter than this. Default 24 h deadline → set job timeout to 25 h.
+        timeout-minutes: 1500
