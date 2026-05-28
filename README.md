@@ -346,12 +346,22 @@ When a package is flagged, the bot posts a quorum request embed:
 │  and allow this dependency into the PR.                      │
 │                                                              │
 │  📝 Reason for update                                        │
-│  ─────────────────────────────────────────────────────────   │
 │  fix(deps): bump lodash from 4.17.19 to 4.17.20             │
-│                                                              │
 │  Addresses CVE-2021-23337 (prototype pollution via           │
 │  _.template). Lodash 4.17.19 is in the dependency graph     │
 │  of build-tools and test-utils. This patch upgrades both.   │
+│                                                              │
+│  📦 Source repository                                        │
+│  `https://registry.npmjs.org`                               │
+│                                                              │
+│  🔒 Trust level       🔴 LOW (45/100)                       │
+│  🔏 Signature status  ⚠️ Valid — rsa-sha256 (weak)          │
+│  🔑 Key / log ID      `4d8f2a3c...`                         │
+│  🧮 Checksum          ✅ Verified (sha256)                   │
+│  🚩 Supply-chain flags                                       │
+│     ⚠️ Behavior change — new network access vs prior version │
+│  ⚠️ Trust deductions  -20 weak algorithm                    │
+│                        -20 behavior change                   │
 │                                                              │
 │  Quorum ID      QR-1748441234-A3F9C1                         │
 │  Trust Outcome  BLOCKED                                      │
@@ -377,11 +387,19 @@ Quorum members click ✅ or ❌ directly on the message. The bot checks reaction
 │ ✅  Quorum APPROVED — `lodash@4.17.20`                       │
 │                                                              │
 │  📝 Reason for update                                        │
-│  ─────────────────────────────────────────────────────────   │
 │  fix(deps): bump lodash from 4.17.19 to 4.17.20             │
-│                                                              │
 │  Addresses CVE-2021-23337 (prototype pollution via           │
 │  _.template). Lodash 4.17.19 is in the dependency graph…    │
+│                                                              │
+│  📦 Source repository                                        │
+│  `https://registry.npmjs.org`                               │
+│                                                              │
+│  🔒 Trust level       🔴 LOW (45/100)                       │
+│  🔏 Signature status  ⚠️ Valid — rsa-sha256 (weak)          │
+│  🔑 Key / log ID      `4d8f2a3c...`                         │
+│  🧮 Checksum          ✅ Verified (sha256)                   │
+│  🚩 Supply-chain flags                                       │
+│     ⚠️ Behavior change — new network access vs prior version │
 │                                                              │
 │  Quorum ID      QR-1748441234-A3F9C1                         │
 │  Final Verdict  APPROVED                                     │
@@ -428,14 +446,28 @@ Formula: `required = floor(size × threshold) + 1`
 
 ### Audit log
 
-Every quorum event writes one row to Google Sheets with 21 columns:
+Every quorum event writes one row to Google Sheets with 33 columns:
 
 | Column | Description | Example |
 |---|---|---|
 | `quorum_id` | Unique ID for this vote | `QR-1748441234-A3F9C1` |
 | `package` / `version` / `ecosystem` | Package identity | `lodash` / `4.17.20` / `npm` |
+| `source_repository` | Registry or artifact proxy URL the package was fetched from | `https://registry.npmjs.org` |
+| `trust_level` | Computed band: `HIGH`, `MEDIUM`, or `LOW` | `MEDIUM` |
+| `trust_level_score` | Numeric score 0–100 | `45` |
+| `sig_status` | `valid`, `invalid`, or `none` | `valid` |
+| `sig_algorithm` | Cryptographic algorithm used | `rsa-sha256` |
+| `sig_strength` | `strong`, `weak`, or `none` | `weak` |
+| `sig_key_id` | Key fingerprint or Sigstore log ID | `4d8f2a3c...` |
+| `chk_status` | `verified`, `mismatch`, or `none` | `verified` |
+| `chk_algorithm` | Hash algorithm used for checksum | `sha256` |
+| `flag_typosquatting` | `true` if name resembles a known package | `false` |
+| `flag_behavior_change` | `true` if new version requests new permissions/network access | `true` |
+| `flag_author_reputation` | `true` if maintainer is new or activity pattern is suspicious | `false` |
+| `flag_provenance` | `true` if no verifiable commit history or SLSA attestation | `false` |
+| `trust_deductions` | Pipe-separated list of all deductions applied | `-20 weak algorithm \| -20 behavior change` |
 | `trust_outcome` | Original trust check result | `blocked` |
-| `update_reason` | PR title + body — the stated reason for the update, flattened to a single line (max 500 chars) | `fix(deps): bump lodash \| Addresses CVE-2021-23337…` |
+| `update_reason` | PR title + body, flattened (max 500 chars) | `fix(deps): bump lodash \| Addresses CVE-2021-23337…` |
 | `initiated_at` / `deadline` | Vote open and expiry timestamps | ISO 8601 |
 | `quorum_size` / `threshold` | Eligible voters and approval fraction | `3` / `0.5` |
 | `approve_count` / `deny_count` / `abstain_count` | Vote tally | `2` / `1` / `0` |
@@ -446,12 +478,17 @@ Every quorum event writes one row to Google Sheets with 21 columns:
 | `github_pr` / `run_id` | PR URL and Actions run ID | Full URL / numeric |
 | `override_rationale` | Summary sentence | `Quorum override: 2/3 approved` |
 
-Update the Sheets header row to add `update_reason` after `trust_outcome`:
+Update the Sheets header row to match the new column order:
 
 ```
-quorum_id | package | version | ecosystem | trust_outcome | update_reason |
-initiated_at | deadline | quorum_size | threshold | approve_count | deny_count |
-abstain_count | final_verdict | decided_at | decided_by | voter_detail |
+quorum_id | package | version | ecosystem | source_repository |
+trust_level | trust_level_score |
+sig_status | sig_algorithm | sig_strength | sig_key_id |
+chk_status | chk_algorithm |
+flag_typosquatting | flag_behavior_change | flag_author_reputation | flag_provenance |
+trust_deductions | trust_outcome | update_reason | initiated_at | deadline |
+quorum_size | threshold | approve_count | deny_count | abstain_count |
+final_verdict | decided_at | decided_by | voter_detail |
 discord_message_id | github_pr | run_id | override_rationale
 ```
 
@@ -507,9 +544,14 @@ discord_message_id | github_pr | run_id | override_rationale
 7. Rename the first tab to `QuorumAuditLog` (or set `SHEETS_SHEET_NAME` to match).
 8. Add a header row with these column names — the engine appends data rows below row 1:
    ```
-   quorum_id | package | version | ecosystem | trust_outcome | update_reason |
-   initiated_at | deadline | quorum_size | threshold | approve_count | deny_count |
-   abstain_count | final_verdict | decided_at | decided_by | voter_detail |
+   quorum_id | package | version | ecosystem | source_repository |
+   trust_level | trust_level_score |
+   sig_status | sig_algorithm | sig_strength | sig_key_id |
+   chk_status | chk_algorithm |
+   flag_typosquatting | flag_behavior_change | flag_author_reputation | flag_provenance |
+   trust_deductions | trust_outcome | update_reason | initiated_at | deadline |
+   quorum_size | threshold | approve_count | deny_count | abstain_count |
+   final_verdict | decided_at | decided_by | voter_detail |
    discord_message_id | github_pr | run_id | override_rationale
    ```
 
@@ -642,6 +684,46 @@ sandbox:
 | `quarantined` | Flagged; override possible | 🔴 Red | **Yes** |
 | `blocked` | Blocked; override possible | 🔴 Red | **Yes** |
 
+### Trust level scoring
+
+The quorum embed shows a computed trust level drawn from six signal categories in `trust-result.json`. This gives voters a single at-a-glance risk score covering cryptographic integrity, checksum verification, and supply-chain provenance — not just the binary blocked/quarantined outcome.
+
+| Band | Score | Meaning |
+|---|---|---|
+| 🟢 HIGH | 80–100 | Strong integrity signals; low additional risk |
+| 🟡 MEDIUM | 50–79 | One or more moderate concerns; review carefully before approving |
+| 🔴 LOW | 0–49 | Significant integrity or provenance concerns; strong justification required |
+
+**Deductions applied to the base score of 100 (cumulative, floor at 0):**
+
+*Cryptographic integrity*
+
+| Condition | Deduction |
+|---|---|
+| No cryptographic signature | −40 |
+| Signature present but weak algorithm (RSA < 3072-bit, SHA-1, GPG without transparency log) | −20 |
+| Signature present but verification failed | −10 |
+| No published checksum, or checksum mismatch | −15 |
+
+*Provenance and supply-chain*
+
+| Condition | Deduction |
+|---|---|
+| Typosquatting — package name closely resembles a known popular package | −25 |
+| Behavioral change — new version requests permissions or network access not present previously | −20 |
+| Author reputation — new or changed maintainer, or sudden activity surge after long inactivity | −15 |
+| Provenance/activity — no verifiable commit history or SLSA attestation | −10 |
+
+A LOW trust level does not automatically change the quorum threshold, but it is logged in the audit record and displayed prominently in the embed so voters can weight their decision accordingly. Teams may choose to require a higher approval count for LOW-trust packages by setting a per-band threshold override in `quorum-config.json`.
+
+**Strong vs. weak signature algorithms:**
+
+| Algorithm | Strength |
+|---|---|
+| ed25519, ECDSA-P256 or higher, RSA ≥ 3072-bit, Sigstore/Cosign | Strong |
+| RSA < 3072-bit, SHA-1 signed, MD5 signed, GPG without Sigstore transparency log | Weak |
+| No signature present | None |
+
 ---
 
 ## Project structure
@@ -711,6 +793,63 @@ The `quorum-override` job exit code drives the PR check. If the job shows green 
 **Zero-day expedited lane not triggering**
 
 Confirm the CVE is present in at least 2 of the 3 required sources (NVD, OSV, GHSA) and that `oss-trust zeroday request` is being called with valid `--cve`, `--package`, `--version`, and `--requester` flags. Check `config/pipeline.yaml` for `zero_day.max_exceptions_per_24h` — if the circuit breaker has tripped, the lane is suspended until the window resets.
+
+---
+
+## Prerequisite best practices
+
+The OSS Trust Framework augments a mature dependency security posture — it does not replace one. The following controls should be in place in your environment regardless of whether this framework is deployed. Without them, the framework addresses only part of the threat surface.
+
+### Why pinning alone is not enough
+
+Pinning to known-good versions is a necessary baseline, but in today's landscape — where malicious open-source packages have surged and attackers specifically target developer tooling, CI/CD secrets, and credentials — a set-and-forget approach to pinning can trap you in maintenance debt while leaving you exposed to sophisticated attacks. Malware campaigns are optimized for developer workflows, exploiting typosquatting, dependency confusion, and hijacked legitimate accounts. Continuous validation is required.
+
+### 1. Local curation and perimeter controls
+
+You cannot rely on public registries (npm, PyPI, Maven, etc.) to act as your first line of defense. Malware often stays live on public registries for hours or days before being reported and removed.
+
+**Establish a single source of truth.** Direct all developer machines and CI/CD pipelines to pull exclusively from a managed private artifact repository (Artifactory, Nexus, Cloudsmith). Block direct access to public registries at the network layer.
+
+**Automate edge curation.** Implement proxy policies that quarantine any package or update that is less than 30 days old, has a brand-new maintainer, or lacks verifiable history. This quarantine period gives the community time to discover and report zero-day malicious packages before they reach your builds.
+
+**Prevent dependency confusion.** Ensure internal private package names are explicitly registered or scoped (e.g. `@yourorg/package`) on public registries. An unregistered internal name can be hijacked by an attacker publishing a higher-versioned public package with the same name, which your build system will pull automatically.
+
+### 2. Advanced version pinning and cryptographic anchoring
+
+**Pin via lockfiles with cryptographic hashes.** Pinning `package==1.2.3` in a manifest file alone is insufficient — mirror attacks and package tampering can still substitute content. Always commit lockfiles (`package-lock.json`, `poetry.lock`, `go.sum`) that mandate SHA-256 or SHA-512 hashes for every dependency and transitive dependency.
+
+**Verify code provenance.** Prioritize packages that adhere to the [SLSA framework](https://slsa.dev) and use cryptographic signing (Sigstore/Cosign) to provide a verifiable chain of custody from source repository to binary registry. This is what Gate 2 and the trust level scoring in this framework validate.
+
+### 3. Sandboxing and runtime isolation
+
+**Disable arbitrary execution hooks.** Many package managers execute installation scripts automatically (npm `preinstall`/`postinstall`). This is the primary injection vector for malware targeting environment variables, SSH keys, and cloud credentials. Disable these globally during installation (e.g. `npm install --ignore-scripts`) unless explicitly audited and whitelisted. This is what Gate 5 (sandbox) in this framework tests for.
+
+**Network-isolate build environments.** Run CI/CD runners in isolated, ephemeral environments with strict egress-filtered network policies. A build pipeline rarely needs unrestricted internet access; blocking unknown outbound connections prevents a compromised package from exfiltrating secrets to an attacker's C2 server.
+
+### 4. Active vulnerability and behavioral analysis
+
+**Incorporate behavioral analysis.** Static CVE scanning is insufficient for catching malware, because malware rarely receives a CVE before it strikes. Use Software Composition Analysis tooling that monitors package behavior — flagging packages that attempt to access `/etc/passwd`, spawn unexpected shells, or make outbound network requests to unlisted domains.
+
+**Use reachability analysis.** To avoid alert fatigue, use tools that determine whether a vulnerable or suspicious code path is actually reachable in your application's active execution paths, rather than flagging dead code in sub-dependencies.
+
+### 5. Guardrails for AI-assisted development
+
+**Address AI package hallucinations.** Large language models frequently hallucinate non-existent packages or recommend abandoned, vulnerable libraries. Ensure automated guardrails in your pipeline catch and block illegitimate package references before they reach a build stage.
+
+**Govern non-human identities.** Treat AI coding agents as first-class citizens. Assign them specific non-human identities, limit their access via least privilege, and continuously audit their package pulls.
+
+### Summary checklist
+
+| Control | Defense layer | What it addresses |
+|---|---|---|
+| Private proxy repository | Perimeter | Blocks unvetted public code; enforces licensing policies |
+| Age-based quarantine (≥30 days) | Perimeter | Prevents immediate consumption of newly published zero-day malware |
+| `--ignore-scripts` flag | Build / install | Neutralizes malicious installation hooks targeting credentials |
+| Cryptographic lockfiles (SHA-256/512) | Configuration | Ensures the exact same untampered binary is used across all environments |
+| Egress-filtered CI/CD runners | Infrastructure | Stops compromised packages from exfiltrating secrets |
+| Sigstore / SLSA provenance | Supply chain | Provides verifiable chain of custody from source to binary |
+| Behavioral SCA tooling | Runtime | Catches malware that has no CVE at time of publish |
+| Scoped internal package names | Registry | Prevents dependency confusion attacks |
 
 ---
 
