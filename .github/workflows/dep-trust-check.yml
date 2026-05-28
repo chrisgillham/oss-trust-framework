@@ -1,0 +1,140 @@
+name: Dependency trust validation
+
+on:
+  pull_request:
+    paths:
+      - "**/requirements*.txt"
+      - "**/package-lock.json"
+      - "**/Cargo.lock"
+      - "**/go.sum"
+      - "**/pyproject.toml"
+      - "**/package.json"
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  detect-changes:
+    name: Detect dependency changes
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.diff.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract changed packages
+        id: diff
+        run: |
+          # Parse lock file diffs to extract new/updated package+version pairs
+          # Output format: JSON array of {package, version, ecosystem} objects
+          python scripts/extract_dep_changes.py \
+            --base ${{ github.event.pull_request.base.sha }} \
+            --head ${{ github.event.pull_request.head.sha }} \
+            >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: Validate ${{ matrix.package }}@${{ matrix.version }}
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: needs.detect-changes.outputs.packages != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install oss-trust-framework
+        run: pip install oss-trust-framework
+
+      - name: Run trust pipeline
+        id: trust
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OSV_API_KEY: ${{ secrets.OSV_API_KEY }}
+          SIEM_HEC_ENDPOINT: ${{ secrets.SIEM_HEC_ENDPOINT }}
+          SIEM_HEC_TOKEN: ${{ secrets.SIEM_HEC_TOKEN }}
+        run: |
+          oss-trust check \
+            --package "${{ matrix.package }}" \
+            --version "${{ matrix.version }}" \
+            --ecosystem "${{ matrix.ecosystem }}" \
+            --output json > trust-result.json
+
+          echo "outcome=$(jq -r .outcome trust-result.json)" >> "$GITHUB_OUTPUT"
+          echo "message=$(jq -r .message trust-result.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const result = JSON.parse(fs.readFileSync('trust-result.json', 'utf8'));
+            const icon = {
+              approved: '✅', blocked: '🚫', quarantined: '⚠️',
+              hold: '⏸️', pending_quorum: '🔐'
+            }[result.outcome] || '❓';
+
+            const gateRows = result.gates
+              .map(g => `| ${g.gate} | ${g.passed ? '✅' : '❌'} | ${g.decision} |`)
+              .join('\n');
+
+            const body = `## ${icon} OSS Trust Framework — \`${result.package}@${result.version}\`
+
+**Outcome:** \`${result.outcome.toUpperCase()}\`
+**Lane:** ${result.lane}
+**Message:** ${result.message}
+
+| Gate | Passed | Decision |
+|---|---|---|
+${gateRows}
+
+${result.outcome === 'blocked' || result.outcome === 'quarantined'
+  ? '> **Action required:** This dependency update has been blocked by the trust pipeline. See gate details above.'
+  : result.outcome === 'hold'
+  ? '> **Approval required:** This release is within the 24–72 h age hold window. A security reviewer must approve before merge.'
+  : ''}`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: Fail PR on block or quarantine
+        if: steps.trust.outputs.outcome == 'blocked' || steps.trust.outputs.outcome == 'quarantined'
+        run: |
+          echo "::error::${{ matrix.package }}@${{ matrix.version }} failed trust validation: ${{ steps.trust.outputs.outcome }}"
+          exit 1
+
+      - name: Upload trust report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-report-${{ matrix.package }}-${{ matrix.version }}
+          path: trust-result.json
+          retention-days: 90
+
+  summary:
+    name: Trust validation summary
+    needs: validate
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check overall outcome
+        run: |
+          if [ "${{ needs.validate.result }}" == "failure" ]; then
+            echo "One or more dependency updates failed trust validation."
+            exit 1
+          fi
+          echo "All dependency updates passed trust validation."
