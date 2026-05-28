@@ -1,0 +1,23 @@
+{
+  "_comment": "Quorum configuration for dep-trust-check.yml override votes.",
+  "_doc": "Add Discord user IDs to 'members'. Find a user ID: Discord → Settings → Advanced → Developer Mode ON, then right-click any user → Copy User ID.",
+
+  "members": [
+    "111111111111111111",
+    "222222222222222222",
+    "333333333333333333"
+  ],
+
+  "threshold": 0.5,
+  "_threshold_note": "Fraction of quorum required for approval. 0.5 = strict simple majority (>50%). E.g. for 3 members: 2 votes needed. For 5 members: 3 votes needed.",
+
+  "deadlineHours": 24,
+  "_deadlineHours_note": "Hours before an unresolved vote is closed and treated as DENIED (fail-closed).",
+
+  "_env_overrides": {
+    "note": "Any field here can be overridden at runtime via environment variables.",
+    "QUORUM_MEMBERS":         "Comma-separated Discord user IDs — overrides members array",
+    "QUORUM_THRESHOLD":       "Float 0.0–1.0 — overrides threshold",
+    "QUORUM_DEADLINE_HOURS":  "Integer — overrides deadlineHours"
+  }
+}
