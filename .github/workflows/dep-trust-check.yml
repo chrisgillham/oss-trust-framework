@@ -172,6 +172,11 @@ jobs:
           GITHUB_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER:       ${{ github.event.pull_request.number }}
           GITHUB_RUN_ID:   ${{ github.run_id }}
+          # PR title and body — surfaced in the Discord embed and audit log so
+          # quorum members can see the stated reason for the dependency update
+          # without leaving Discord to read the PR.
+          PR_TITLE:        ${{ github.event.pull_request.title }}
+          PR_BODY:         ${{ github.event.pull_request.body }}
           # Optional runtime overrides (can also be set in quorum-config.json)
           # QUORUM_MEMBERS:         "111,222,333"
           # QUORUM_THRESHOLD:       "0.5"
