@@ -72,69 +72,33 @@ jobs:
             --output json > trust-result.json
 
           echo "outcome=$(jq -r .outcome trust-result.json)" >> "$GITHUB_OUTPUT"
-          echo "message=$(jq -r .message trust-result.json)" >> "$GITHUB_OUTPUT"
+          echo "message=$(jq -r .message trust-result.json)"  >> "$GITHUB_OUTPUT"
 
+      # Upload the result so the comment step can read it even if a prior
+      # matrix leg failed (fail-fast: false means legs run independently).
+      - name: Upload trust result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-result-${{ matrix.ecosystem }}-${{ matrix.package }}-${{ matrix.version }}
+          path: trust-result.json
+          retention-days: 7
+
+      # Block the job explicitly so the PR check goes red on blocked/quarantined.
+      - name: Enforce trust outcome
+        if: >
+          steps.trust.outputs.outcome == 'blocked' ||
+          steps.trust.outputs.outcome == 'quarantined'
+        run: |
+          echo "::error ::Trust check failed for ${{ matrix.package }}@${{ matrix.version }}: ${{ steps.trust.outputs.message }}"
+          exit 1
+
+      # Post (or update) a PR comment — script lives in .github/scripts to
+      # avoid embedding multi-line JS with pipe characters inside YAML.
       - name: Comment on PR
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-            const result = JSON.parse(fs.readFileSync('trust-result.json', 'utf8'));
-            const icon = {
-              approved: '✅', blocked: '🚫', quarantined: '⚠️',
-              hold: '⏸️', pending_quorum: '🔐'
-            }[result.outcome] || '❓';
-
-            const gateRows = result.gates
-              .map(g => `| ${g.gate} | ${g.passed ? '✅' : '❌'} | ${g.decision} |`)
-              .join('\n');
-
-            const body = `## ${icon} OSS Trust Framework — \`${result.package}@${result.version}\`
-
-**Outcome:** \`${result.outcome.toUpperCase()}\`
-**Lane:** ${result.lane}
-**Message:** ${result.message}
-
-| Gate | Passed | Decision |
-|---|---|---|
-${gateRows}
-
-${result.outcome === 'blocked' || result.outcome === 'quarantined'
-  ? '> **Action required:** This dependency update has been blocked by the trust pipeline. See gate details above.'
-  : result.outcome === 'hold'
-  ? '> **Approval required:** This release is within the 24–72 h age hold window. A security reviewer must approve before merge.'
-  : ''}`;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body,
-            });
-
-      - name: Fail PR on block or quarantine
-        if: steps.trust.outputs.outcome == 'blocked' || steps.trust.outputs.outcome == 'quarantined'
-        run: |
-          echo "::error::${{ matrix.package }}@${{ matrix.version }} failed trust validation: ${{ steps.trust.outputs.outcome }}"
-          exit 1
-
-      - name: Upload trust report
-        uses: actions/upload-artifact@v4
-        with:
-          name: trust-report-${{ matrix.package }}-${{ matrix.version }}
-          path: trust-result.json
-          retention-days: 90
-
-  summary:
-    name: Trust validation summary
-    needs: validate
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Check overall outcome
-        run: |
-          if [ "${{ needs.validate.result }}" == "failure" ]; then
-            echo "One or more dependency updates failed trust validation."
-            exit 1
-          fi
-          echo "All dependency updates passed trust validation."
+            const fn = require('./.github/scripts/post-trust-comment.js');
+            await fn({ github, context });
