@@ -27,11 +27,40 @@
 //   SHEETS_SHEET_NAME       Tab name (default "QuorumAuditLog")
 //   PR_TITLE                Pull request title — surfaced in embed as update reason
 //   PR_BODY                 Pull request body — surfaced in embed as update reason
+//   PKG_REGISTRY_URL        URL of the registry/repository the package was fetched from
+//                           (e.g. https://registry.npmjs.org, https://pypi.org/simple)
+//
+// trust-result.json fields consumed by this engine:
+//   package, version, ecosystem, outcome      — standard oss-trust fields
+//   source_repository                         — URL of the registry the package came from
+//   signature.present    bool                 — whether any cryptographic signature exists
+//   signature.algorithm  string               — e.g. "ed25519", "rsa-sha256", "none"
+//   signature.verified   bool                 — whether the signature validated successfully
+//   signature.keyid      string               — key fingerprint / Sigstore log ID
+//   signature.strength   "strong"|"weak"|"none"
+//                         strong = ed25519 / ECDSA-P256+ / RSA≥3072 / Sigstore
+//                         weak   = RSA<3072 / SHA-1 / MD5 / GPG without transparency log
+//                         none   = no signature found
+//
+// Computed trust level (0–100) surfaced in the embed:
+//   Starts at 100; deductions applied in order:
+//     -40   No cryptographic signature
+//     -20   Signature present but weak algorithm
+//     -10   Signature present but verification failed
+//   Score bands:
+//     80–100  HIGH
+//     50–79   MEDIUM
+//     0–49    LOW
 //
 // Audit record schema (one row per quorum event):
-//   quorum_id | package | version | ecosystem | trust_outcome | update_reason |
-//   initiated_at | deadline | quorum_size | threshold | approve_count | deny_count |
-//   abstain_count | final_verdict | decided_at | decided_by | voter_detail |
+//   quorum_id | package | version | ecosystem | source_repository |
+//   trust_level | trust_level_score |
+//   sig_status | sig_algorithm | sig_strength | sig_key_id |
+//   chk_status | chk_algorithm |
+//   flag_typosquatting | flag_behavior_change | flag_author_reputation | flag_provenance |
+//   trust_deductions | trust_outcome | update_reason | initiated_at | deadline |
+//   quorum_size | threshold | approve_count | deny_count | abstain_count |
+//   final_verdict | decided_at | decided_by | voter_detail |
 //   discord_message_id | github_pr | run_id | override_rationale
 
 "use strict";
@@ -43,7 +72,6 @@ const crypto  = require("crypto");
 // ── Config ────────────────────────────────────────────────────────────────────
 
 function loadConfig() {
-  // Prefer quorum-config.json committed to repo; fall back to env vars.
   let fileConfig = {};
   const configPath = ".github/quorum-config.json";
   if (fs.existsSync(configPath)) {
@@ -63,30 +91,31 @@ function loadConfig() {
   }
 
   return {
-    members,                                                    // Discord user ID strings
-    threshold:     parseFloat(process.env.QUORUM_THRESHOLD    || fileConfig.threshold    || "0.5"),
-    deadlineHours: parseInt(  process.env.QUORUM_DEADLINE_HOURS || fileConfig.deadlineHours || "24", 10),
+    members,
+    threshold:     parseFloat(process.env.QUORUM_THRESHOLD      || fileConfig.threshold      || "0.5"),
+    deadlineHours: parseInt(  process.env.QUORUM_DEADLINE_HOURS || fileConfig.deadlineHours  || "24", 10),
     discord: {
-      token:      requireEnv("DISCORD_BOT_TOKEN"),
-      channelId:  requireEnv("DISCORD_CHANNEL_ID"),
-      guildId:    requireEnv("DISCORD_GUILD_ID"),
+      token:     requireEnv("DISCORD_BOT_TOKEN"),
+      channelId: requireEnv("DISCORD_CHANNEL_ID"),
+      guildId:   requireEnv("DISCORD_GUILD_ID"),
     },
     sheets: {
-      credentials:    process.env.SHEETS_CREDENTIALS      || null,  // base64 JSON
-      spreadsheetId:  process.env.SHEETS_SPREADSHEET_ID   || null,
-      sheetName:      process.env.SHEETS_SHEET_NAME        || "QuorumAuditLog",
+      credentials:   process.env.SHEETS_CREDENTIALS    || null,
+      spreadsheetId: process.env.SHEETS_SPREADSHEET_ID || null,
+      sheetName:     process.env.SHEETS_SHEET_NAME      || "QuorumAuditLog",
     },
     github: {
-      token:    requireEnv("GITHUB_TOKEN"),
-      repo:     process.env.GITHUB_REPOSITORY || "",
-      prNumber: process.env.PR_NUMBER         || "",
-      runId:    process.env.GITHUB_RUN_ID      || "",
+      token:     requireEnv("GITHUB_TOKEN"),
+      repo:      process.env.GITHUB_REPOSITORY || "",
+      prNumber:  process.env.PR_NUMBER         || "",
+      runId:     process.env.GITHUB_RUN_ID     || "",
       serverUrl: process.env.GITHUB_SERVER_URL || "https://github.com",
-      // PR title + body are passed in as env vars by the workflow.
-      // Together they form the stated reason for the dependency update —
-      // exactly what quorum members need to make an informed vote.
-      prTitle:  process.env.PR_TITLE || "",
-      prBody:   process.env.PR_BODY  || "",
+      // PR title + body: the stated reason for the dependency update.
+      prTitle:   process.env.PR_TITLE || "",
+      prBody:    process.env.PR_BODY  || "",
+      // Source registry URL passed explicitly from the workflow.
+      // Falls back to a value in trust-result.json if not set here.
+      registryUrl: process.env.PKG_REGISTRY_URL || "",
     },
   };
 }
@@ -128,7 +157,7 @@ class DiscordClient {
     this.guildId   = guildId;
   }
 
-  _opts(method, path, hasBody) {
+  _opts(method, path) {
     return {
       hostname: "discord.com",
       path:     `/api/v10${path}`,
@@ -141,147 +170,325 @@ class DiscordClient {
     };
   }
 
-  post(path, body)   { return request(this._opts("POST",  path, true),  body); }
-  patch(path, body)  { return request(this._opts("PATCH", path, true),  body); }
-  get(path)          { return request(this._opts("GET",   path, false)); }
-  put(path)          { return request(this._opts("PUT",   path, false)); }
-  delete(path)       { return request(this._opts("DELETE",path, false)); }
+  post(path, body)  { return request(this._opts("POST",   path), body); }
+  patch(path, body) { return request(this._opts("PATCH",  path), body); }
+  get(path)         { return request(this._opts("GET",    path)); }
+  put(path)         { return request(this._opts("PUT",    path)); }
+  delete(path)      { return request(this._opts("DELETE", path)); }
 
-  // Post an embed message to the configured channel
   async postEmbed(embed) {
     return this.post(`/channels/${this.channelId}/messages`, { embeds: [embed] });
   }
-
-  // Update an existing embed message
   async updateEmbed(messageId, embed) {
     return this.patch(`/channels/${this.channelId}/messages/${messageId}`, { embeds: [embed] });
   }
-
-  // Add a reaction to a message (bot adds both ✅ and ❌ as vote anchors)
   async addReaction(messageId, emoji) {
-    // Emoji must be URL-encoded for standard Unicode emoji
-    const encoded = encodeURIComponent(emoji);
-    return this.put(`/channels/${this.channelId}/messages/${messageId}/reactions/${encoded}/@me`);
+    return this.put(`/channels/${this.channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`);
   }
-
-  // Get all reactions for a given emoji on a message
   async getReactions(messageId, emoji) {
-    const encoded = encodeURIComponent(emoji);
-    return this.get(`/channels/${this.channelId}/messages/${messageId}/reactions/${encoded}?limit=100`);
+    return this.get(`/channels/${this.channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}?limit=100`);
   }
-
-  // Resolve a user ID to a username for audit display
   async getUser(userId) {
-    try {
-      return await this.get(`/users/${userId}`);
-    } catch {
-      return { id: userId, username: userId };
-    }
-  }
-
-  // Fetch guild member display names for the quorum roster
-  async getMember(userId) {
-    try {
-      return await this.get(`/guilds/${this.guildId}/members/${userId}`);
-    } catch {
-      return { user: { id: userId, username: userId }, nick: null };
-    }
+    try { return await this.get(`/users/${userId}`); }
+    catch { return { id: userId, username: userId }; }
   }
 }
 
-// ── Embed builders ────────────────────────────────────────────────────────────
+// ── Trust level computation ───────────────────────────────────────────────────
+//
+// Reads trust-result.json and computes a 0–100 composite score across six
+// signal categories. The score drives the embed color, the band label shown
+// to voters, and is persisted in the audit log for trend analysis.
+//
+// trust-result.json fields consumed (all optional — missing = not penalised):
+//
+//   Integrity / cryptographic signals
+//   ─────────────────────────────────
+//   signature.present    bool     — whether any cryptographic signature exists
+//   signature.algorithm  string   — e.g. "ed25519", "rsa-sha256", "none"
+//   signature.verified   bool     — whether the signature validated
+//   signature.keyid      string   — key fingerprint / Sigstore log ID
+//   signature.strength   string   — "strong" | "weak" | "none"
+//                         strong = ed25519 / ECDSA-P256+ / RSA≥3072 / Sigstore
+//                         weak   = RSA<3072 / SHA-1 / MD5 / GPG w/o transparency
+//   checksum.present     bool     — whether a published checksum exists
+//   checksum.verified    bool     — whether downloaded hash matches published hash
+//   checksum.algorithm   string   — e.g. "sha256", "md5"
+//
+//   Provenance / supply-chain signals
+//   ──────────────────────────────────
+//   flags.typosquatting         bool   — name similarity to known popular package
+//   flags.behavior_change       bool   — new version requests permissions/network
+//                                        access not present in previous version
+//   flags.author_reputation     bool   — new/changed maintainer or inactivity surge
+//                                        (possible account hijack indicator)
+//   flags.provenance_activity   bool   — repo has no commit history, dead issues,
+//                                        or no verifiable SLSA provenance
+//
+// Deduction table (applied in order, cumulative, floor at 0):
+//
+//   Cryptographic integrity
+//   −40   No cryptographic signature
+//   −20   Signature present but weak algorithm
+//   −10   Signature present but verification failed
+//   −15   No published checksum  OR  checksum mismatch
+//
+//   Provenance and supply-chain
+//   −25   Typosquatting flag (name closely resembles a popular package)
+//   −20   Behavioral change flag (new permissions / network access)
+//   −15   Author reputation flag (new maintainer / inactivity surge)
+//   −10   Provenance/activity flag (dead repo / no SLSA attestation)
+//
+// Score bands:
+//   80–100  🟢 HIGH    — low additional risk
+//   50–79   🟡 MEDIUM  — elevated risk; voters should review carefully
+//   0–49    🔴 LOW     — high risk; strong justification required
+
+function computeTrustLevel(trustResult) {
+  const sig   = trustResult.signature || {};
+  const chk   = trustResult.checksum  || {};
+  const flags = trustResult.flags     || {};
+
+  let score = 100;
+  const deductions = [];
+
+  // ── Cryptographic signature ─────────────────────────────────────────────
+  if (!sig.present) {
+    score -= 40;
+    deductions.push("-40 no cryptographic signature");
+  } else if (sig.strength === "weak") {
+    score -= 20;
+    deductions.push("-20 weak signature algorithm");
+  }
+  if (sig.present && sig.verified === false) {
+    score -= 10;
+    deductions.push("-10 signature verification failed");
+  }
+
+  // ── Checksum integrity ──────────────────────────────────────────────────
+  // Penalise either: no checksum published at all, or checksum present but
+  // the downloaded file hash does not match (tamper indicator).
+  if (!chk.present) {
+    score -= 15;
+    deductions.push("-15 no published checksum");
+  } else if (chk.verified === false) {
+    score -= 15;
+    deductions.push("-15 checksum mismatch — possible tampering");
+  }
+
+  // ── Provenance and supply-chain flags ───────────────────────────────────
+  if (flags.typosquatting) {
+    score -= 25;
+    deductions.push("-25 typosquatting — name resembles a known package");
+  }
+  if (flags.behavior_change) {
+    score -= 20;
+    deductions.push("-20 behavior change — new permissions or network access");
+  }
+  if (flags.author_reputation) {
+    score -= 15;
+    deductions.push("-15 author reputation — new maintainer or inactivity surge");
+  }
+  if (flags.provenance_activity) {
+    score -= 10;
+    deductions.push("-10 provenance — no commit history or SLSA attestation");
+  }
+
+  score = Math.max(0, score);
+
+  const band     = score >= 80 ? "HIGH" : score >= 50 ? "MEDIUM" : "LOW";
+  const bandIcon = { HIGH: "🟢", MEDIUM: "🟡", LOW: "🔴" }[band];
+
+  // ── Checksum display line ───────────────────────────────────────────────
+  const chkStatusLine = !chk.present
+    ? "🚫 No checksum published"
+    : chk.verified
+      ? `✅ Verified (${chk.algorithm ?? "unknown"})`
+      : `❌ Mismatch — ${chk.algorithm ?? "unknown"} hash does not match`;
+
+  // ── Flag summary for embed display ─────────────────────────────────────
+  const flagLines = [
+    flags.typosquatting      ? "⚠️ Typosquatting risk"                          : null,
+    flags.behavior_change    ? "⚠️ New permissions / network access vs prior version" : null,
+    flags.author_reputation  ? "⚠️ New or changed maintainer / inactivity surge" : null,
+    flags.provenance_activity? "⚠️ No verifiable commit history or SLSA attestation" : null,
+  ].filter(Boolean);
+
+  return {
+    score,
+    band,
+    bandIcon,
+    label:          `${bandIcon} ${band} (${score}/100)`,
+    deductions:     deductions.length ? deductions.join("\n") : "none",
+    deductionCount: deductions.length,
+
+    // Signature
+    sigPresent:    sig.present   ?? false,
+    sigVerified:   sig.verified  ?? null,
+    sigAlgorithm:  sig.algorithm ?? "unknown",
+    sigStrength:   sig.strength  ?? "none",
+    sigKeyId:      sig.keyid     ?? "n/a",
+    sigStatusLine: sig.present
+      ? (sig.verified
+          ? `✅ Valid — ${sig.algorithm ?? "unknown"} (${sig.strength ?? "?"})`
+          : `❌ Invalid / unverifiable — ${sig.algorithm ?? "unknown"}`)
+      : "🚫 No signature",
+
+    // Checksum
+    chkPresent:    chk.present  ?? false,
+    chkVerified:   chk.verified ?? null,
+    chkAlgorithm:  chk.algorithm ?? "unknown",
+    chkStatusLine,
+
+    // Flags
+    flagLines,
+    flagSummary: flagLines.length ? flagLines.join("\n") : "none",
+  };
+}
+
+// ── Embed helpers ─────────────────────────────────────────────────────────────
 
 const COLOR = {
-  PENDING:  0xF59E0B,   // amber
-  APPROVED: 0x22C55E,   // green
-  DENIED:   0xEF4444,   // red
-  EXPIRED:  0x6B7280,   // grey
-  BLOCKED:  0xDC2626,   // dark red  (trust outcome)
-  QUARANTINE: 0xF97316, // orange    (trust outcome)
+  APPROVED:   0x22C55E,
+  DENIED:     0xEF4444,
+  EXPIRED:    0x6B7280,
+  BLOCKED:    0xDC2626,
+  QUARANTINE: 0xF97316,
 };
 
-// Build a concise update-reason string from PR title + body.
-// Discord embed field values are capped at 1024 chars; we truncate body
-// to 800 chars so the combined value stays well inside that limit.
+// Trust-level band overrides the default embed color so the severity is
+// immediately visible even before reading the text.
+const TRUST_COLOR = { HIGH: 0x22C55E, MEDIUM: 0xF59E0B, LOW: 0xDC2626 };
+
 function buildUpdateReason(prTitle, prBody) {
   const title = (prTitle || "").trim();
   const body  = (prBody  || "").trim();
-
   if (!title && !body) return "_No PR title or description provided._";
-
   const parts = [];
   if (title) parts.push(`**${title}**`);
   if (body) {
-    // Strip markdown images and HTML comments which add noise without context
     const cleaned = body
       .replace(/<!--[\s\S]*?-->/g, "")
       .replace(/!\[.*?\]\(.*?\)/g, "")
       .trim();
-    if (cleaned) {
-      parts.push(cleaned.length > 800 ? cleaned.slice(0, 797) + "…" : cleaned);
-    }
+    if (cleaned) parts.push(cleaned.length > 800 ? cleaned.slice(0, 797) + "…" : cleaned);
   }
   return parts.join("\n\n");
 }
 
-function pendingEmbed(quorumId, pkg, version, ecosystem, trustOutcome, cfg, deadlineIso, prUrl) {
+function pendingEmbed(quorumId, pkg, version, ecosystem, trustOutcome,
+                      cfg, deadlineIso, prUrl, sourceRepo, trust) {
   const needed       = requiredVotes(cfg.members.length, cfg.threshold);
   const roster       = cfg.members.map((id) => `<@${id}>`).join("  ");
   const updateReason = buildUpdateReason(cfg.github.prTitle, cfg.github.prBody);
 
+  // Color is driven by trust level band, not just blocked/quarantined
+  const embedColor = TRUST_COLOR[trust.band] ??
+    (trustOutcome === "blocked" ? COLOR.BLOCKED : COLOR.QUARANTINE);
+
   return {
     title: `🔐 Quorum Override Request — \`${pkg}@${version}\``,
-    color: trustOutcome === "blocked" ? COLOR.BLOCKED : COLOR.QUARANTINE,
+    color: embedColor,
     description: [
       `The OSS Trust Framework flagged **\`${pkg}@${version}\`** (${ecosystem}) as **\`${trustOutcome.toUpperCase()}\`**.`,
       `A **simple majority** quorum is required to override and allow this dependency into the PR.`,
     ].join("\n"),
     fields: [
-      // ── Update reason first — most important context for voters ──────────
+      // ── Reason for update — most important voter context ─────────────────
       {
-        name:  "📝 Reason for update",
-        value: updateReason,
+        name:   "📝 Reason for update",
+        value:  updateReason,
         inline: false,
       },
-      // ── Package and vote metadata ────────────────────────────────────────
-      { name: "Quorum ID",      value: `\`${quorumId}\``,                     inline: true  },
-      { name: "Trust Outcome",  value: `\`${trustOutcome.toUpperCase()}\``,   inline: true  },
-      { name: "Ecosystem",      value: `\`${ecosystem}\``,                    inline: true  },
-      { name: "PR",             value: prUrl || "n/a",                        inline: true  },
-      { name: "Quorum Size",    value: `${cfg.members.length} eligible`,      inline: true  },
-      { name: "Votes Needed",   value: `${needed} to approve or deny`,        inline: true  },
-      { name: "Deadline",       value: `<t:${isoToUnix(deadlineIso)}:R>`,     inline: true  },
+      // ── Source and cryptographic trust context ───────────────────────────
       {
-        name:  "How to vote",
-        value: "React with ✅ to **approve** the override, or ❌ to **deny** it.\nOnly votes from the quorum roster below are counted.",
+        name:   "📦 Source repository",
+        value:  sourceRepo ? `\`${sourceRepo}\`` : "_Not provided — check PR for origin._",
+        inline: false,
+      },
+      {
+        name:   "🔒 Trust level",
+        value:  trust.label,
+        inline: true,
+      },
+      {
+        name:   "🔏 Signature status",
+        value:  trust.sigStatusLine,
+        inline: true,
+      },
+      {
+        name:   "🔑 Key / log ID",
+        value:  trust.sigKeyId !== "n/a" ? `\`${trust.sigKeyId}\`` : "_n/a_",
+        inline: true,
+      },
+      {
+        name:   "🧮 Checksum",
+        value:  trust.chkStatusLine,
+        inline: false,
+      },
+      trust.flagLines.length > 0
+        ? {
+            name:   "🚩 Supply-chain flags",
+            value:  trust.flagSummary,
+            inline: false,
+          }
+        : null,
+      trust.deductionCount > 0
+        ? {
+            name:   "⚠️ Trust level deductions",
+            value:  trust.deductions,
+            inline: false,
+          }
+        : null,
+      // ── Vote metadata ────────────────────────────────────────────────────
+      { name: "Quorum ID",     value: `\`${quorumId}\``,                   inline: true },
+      { name: "Trust Outcome", value: `\`${trustOutcome.toUpperCase()}\``, inline: true },
+      { name: "Ecosystem",     value: `\`${ecosystem}\``,                  inline: true },
+      { name: "PR",            value: prUrl || "n/a",                      inline: true },
+      { name: "Quorum Size",   value: `${cfg.members.length} eligible`,    inline: true },
+      { name: "Votes Needed",  value: `${needed} to approve or deny`,      inline: true },
+      { name: "Deadline",      value: `<t:${isoToUnix(deadlineIso)}:R>`,   inline: true },
+      {
+        name:   "How to vote",
+        value:  "React with ✅ to **approve** the override, or ❌ to **deny** it.\nOnly votes from the quorum roster below are counted.",
         inline: false,
       },
       { name: "Eligible voters", value: roster || "None configured", inline: false },
-    ],
+    ].filter(Boolean),   // remove null entries (conditional deductions field)
     footer: { text: "HITL Quorum Framework · Simple Majority (>50%) · Chris Gillham" },
     timestamp: new Date().toISOString(),
   };
 }
 
-function resolvedEmbed(quorumId, pkg, version, ecosystem, trustOutcome, verdict,
-                        tally, voterLines, decidedAt, cfg) {
-  const icon         = verdict === "APPROVED" ? "✅" : verdict === "DENIED" ? "🚫" : "⏱️";
-  const color        = verdict === "APPROVED" ? COLOR.APPROVED : verdict === "DENIED" ? COLOR.DENIED : COLOR.EXPIRED;
+function resolvedEmbed(quorumId, pkg, version, ecosystem, trustOutcome,
+                        verdict, tally, voterLines, decidedAt, cfg, sourceRepo, trust) {
+  const icon  = verdict === "APPROVED" ? "✅" : verdict === "DENIED" ? "🚫" : "⏱️";
+  const color = verdict === "APPROVED" ? COLOR.APPROVED
+              : verdict === "DENIED"   ? COLOR.DENIED
+              :                          COLOR.EXPIRED;
   const updateReason = buildUpdateReason(cfg.github.prTitle, cfg.github.prBody);
 
   return {
     title: `${icon} Quorum ${verdict} — \`${pkg}@${version}\``,
     color,
     fields: [
-      { name: "📝 Reason for update", value: updateReason,                        inline: false },
-      { name: "Quorum ID",            value: `\`${quorumId}\``,                   inline: true  },
-      { name: "Final Verdict",        value: `\`${verdict}\``,                    inline: true  },
-      { name: "Trust Outcome",        value: `\`${trustOutcome.toUpperCase()}\``, inline: true  },
-      { name: "✅ Approve",           value: `${tally.approve}`,                  inline: true  },
-      { name: "❌ Deny",              value: `${tally.deny}`,                     inline: true  },
-      { name: "⬜ Abstain",           value: `${tally.abstain}`,                  inline: true  },
-      { name: "Voter detail",         value: voterLines.join("\n") || "None",     inline: false },
-    ],
+      { name: "📝 Reason for update",    value: updateReason,                                                    inline: false },
+      { name: "📦 Source repository",    value: sourceRepo ? `\`${sourceRepo}\`` : "_Not provided_",             inline: false },
+      { name: "🔒 Trust level",          value: trust.label,                                                     inline: true  },
+      { name: "🔏 Signature status",     value: trust.sigStatusLine,                                             inline: true  },
+      { name: "🔑 Key / log ID",         value: trust.sigKeyId !== "n/a" ? `\`${trust.sigKeyId}\`` : "_n/a_",   inline: true  },
+      { name: "🧮 Checksum",             value: trust.chkStatusLine,                                             inline: false },
+      trust.flagLines.length > 0
+        ? { name: "🚩 Supply-chain flags", value: trust.flagSummary,  inline: false }
+        : null,
+      { name: "Quorum ID",               value: `\`${quorumId}\``,                                              inline: true  },
+      { name: "Final Verdict",           value: `\`${verdict}\``,                                               inline: true  },
+      { name: "Trust Outcome",           value: `\`${trustOutcome.toUpperCase()}\``,                            inline: true  },
+      { name: "✅ Approve",              value: `${tally.approve}`,                                             inline: true  },
+      { name: "❌ Deny",                 value: `${tally.deny}`,                                                inline: true  },
+      { name: "⬜ Abstain",              value: `${tally.abstain}`,                                             inline: true  },
+      { name: "Voter detail",            value: voterLines.join("\n") || "None",                                inline: false },
+    ].filter(Boolean),
     footer: { text: `Decided at ${decidedAt} · HITL Quorum Framework · Chris Gillham` },
     timestamp: decidedAt,
   };
@@ -290,7 +497,6 @@ function resolvedEmbed(quorumId, pkg, version, ecosystem, trustOutcome, verdict,
 // ── Quorum logic ──────────────────────────────────────────────────────────────
 
 function requiredVotes(quorumSize, threshold) {
-  // Smallest integer > threshold × size  (strict majority)
   return Math.floor(quorumSize * threshold) + 1;
 }
 
@@ -304,16 +510,14 @@ async function collectVotes(discord, messageId, quorumMembers) {
     discord.getReactions(messageId, "❌"),
   ]);
 
-  // Filter out the bot's own seed reactions; only count quorum members
   const memberSet  = new Set(quorumMembers);
   const approveIds = (approvers || []).filter((u) => !u.bot && memberSet.has(u.id)).map((u) => u.id);
   const denyIds    = (deniers   || []).filter((u) => !u.bot && memberSet.has(u.id)).map((u) => u.id);
 
-  // Deduplicate — a user who reacted both ways counts as deny (more conservative)
-  const denySet    = new Set(denyIds);
+  // Dual-react = deny (more conservative)
+  const denySet            = new Set(denyIds);
   const filteredApproveIds = approveIds.filter((id) => !denySet.has(id));
-
-  const abstainIds = quorumMembers.filter(
+  const abstainIds         = quorumMembers.filter(
     (id) => !filteredApproveIds.includes(id) && !denyIds.includes(id)
   );
 
@@ -331,16 +535,12 @@ function evaluateVotes(tally, quorumSize, threshold) {
   const needed = requiredVotes(quorumSize, threshold);
   if (tally.approve >= needed) return "APPROVED";
   if (tally.deny    >= needed) return "DENIED";
-  return null;   // no majority yet
+  return null;
 }
 
-// ── Poll loop ─────────────────────────────────────────────────────────────────
-// GitHub Actions jobs have a 6-hour default timeout; we poll until majority
-// or deadline, then exit so the job doesn't run forever.
-
 async function pollUntilDecision(discord, messageId, quorumId, pkg, version,
-                                  ecosystem, trustOutcome, cfg, deadline, prUrl) {
-  const POLL_INTERVAL_MS = 30_000;   // check every 30 seconds
+                                  ecosystem, trustOutcome, cfg, deadline) {
+  const POLL_INTERVAL_MS = 30_000;
   const quorumSize = cfg.members.length;
 
   console.log(`[QUORUM] ${quorumId} — polling for votes on message ${messageId}`);
@@ -348,21 +548,15 @@ async function pollUntilDecision(discord, messageId, quorumId, pkg, version,
 
   while (new Date() < new Date(deadline)) {
     await sleep(POLL_INTERVAL_MS);
-
-    const tally  = await collectVotes(discord, messageId, cfg.members);
+    const tally   = await collectVotes(discord, messageId, cfg.members);
     const verdict = evaluateVotes(tally, quorumSize, cfg.threshold);
-
     console.log(
       `[QUORUM] ${quorumId} tally — ✅ ${tally.approve} ❌ ${tally.deny} ⬜ ${tally.abstain}` +
       (verdict ? ` → ${verdict}` : " → pending")
     );
-
-    if (verdict) {
-      return { verdict, tally, decidedAt: new Date().toISOString() };
-    }
+    if (verdict) return { verdict, tally, decidedAt: new Date().toISOString() };
   }
 
-  // Deadline reached with no majority — treat as DENIED (fail closed)
   const tally = await collectVotes(discord, messageId, cfg.members);
   console.log(`[QUORUM] ${quorumId} — deadline reached without majority. Failing closed.`);
   return { verdict: "EXPIRED", tally, decidedAt: new Date().toISOString() };
@@ -371,8 +565,6 @@ async function pollUntilDecision(discord, messageId, quorumId, pkg, version,
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-
-// ── Voter detail lines (for embed + audit) ────────────────────────────────────
 
 async function buildVoterLines(discord, tally) {
   const lines = [];
@@ -399,20 +591,18 @@ async function appendAuditRow(cfg, row) {
     return;
   }
 
-  // Decode service account JSON from base64 env var
   const serviceAccount = JSON.parse(
     Buffer.from(cfg.sheets.credentials, "base64").toString("utf8")
   );
-
   const token = await getServiceAccountToken(serviceAccount, [
     "https://www.googleapis.com/auth/spreadsheets",
   ]);
 
-  const range  = `${cfg.sheets.sheetName}!A:T`;
+  // Column range grows with the new fields — use A:Z to future-proof
+  const range  = `${cfg.sheets.sheetName}!A:Z`;
   const values = [Object.values(row)];
-
-  const body = JSON.stringify({ values });
-  const opts = {
+  const body   = JSON.stringify({ values });
+  const opts   = {
     hostname: "sheets.googleapis.com",
     path:     `/v4/spreadsheets/${cfg.sheets.spreadsheetId}/values/${encodeURIComponent(range)}:append` +
               `?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
@@ -427,16 +617,15 @@ async function appendAuditRow(cfg, row) {
   console.log(`[QUORUM] Audit row appended to Sheets: ${cfg.sheets.spreadsheetId}`);
 }
 
-// Minimal JWT / service-account token flow (no external deps)
 async function getServiceAccountToken(sa, scopes) {
-  const now = Math.floor(Date.now() / 1000);
-  const header  = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const now    = Math.floor(Date.now() / 1000);
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(JSON.stringify({
-    iss:   sa.client_email,
+    iss: sa.client_email,
     scope: scopes.join(" "),
-    aud:   "https://oauth2.googleapis.com/token",
-    iat:   now,
-    exp:   now + 3600,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
   }));
 
   const sigInput  = `${header}.${payload}`;
@@ -459,27 +648,34 @@ async function getServiceAccountToken(sa, scopes) {
 }
 
 function base64url(str) {
-  return Buffer.from(str)
-    .toString("base64")
+  return Buffer.from(str).toString("base64")
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
 // ── GitHub PR comment ─────────────────────────────────────────────────────────
 
-async function postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, messageId) {
+async function postGitHubResult(cfg, pkg, version, verdict, tally,
+                                 quorumId, messageId, sourceRepo, trust) {
   if (!cfg.github.prNumber || !cfg.github.repo) return;
 
   const [owner, repo] = cfg.github.repo.split("/");
-  const icon = { APPROVED: "✅", DENIED: "🚫", EXPIRED: "⏱️" }[verdict] ?? "❓";
+  const icon       = { APPROVED: "✅", DENIED: "🚫", EXPIRED: "⏱️" }[verdict] ?? "❓";
   const discordUrl = `https://discord.com/channels/${process.env.DISCORD_GUILD_ID}/${process.env.DISCORD_CHANNEL_ID}/${messageId}`;
+  const marker     = `<!-- quorum:${quorumId} -->`;
 
-  const marker = `<!-- quorum:${quorumId} -->`;
-  const body   = [
+  const body = [
     marker,
     `## ${icon} Quorum ${verdict} — \`${pkg}@${version}\``,
     `| Field | Value |`,
     `|-------|-------|`,
     `| Quorum ID | \`${quorumId}\` |`,
+    `| Source repository | \`${sourceRepo || "unknown"}\` |`,
+    `| Trust level | ${trust.label} |`,
+    `| Signature | ${trust.sigStatusLine} |`,
+    `| Checksum | ${trust.chkStatusLine} |`,
+    trust.flagLines.length > 0
+      ? `| Supply-chain flags | ${trust.flagLines.join(", ")} |`
+      : null,
     `| Verdict | \`${verdict}\` |`,
     `| ✅ Approve | ${tally.approve} |`,
     `| ❌ Deny | ${tally.deny} |`,
@@ -489,9 +685,8 @@ async function postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, mes
     verdict === "APPROVED"
       ? "\n> ⚠️ **Override approved.** This dependency was flagged by OSS Trust Framework but quorum voted to allow it."
       : "\n> 🚫 **Override denied.** This dependency remains blocked.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
-  // Check for existing quorum comment to update
   const listOpts = {
     hostname: "api.github.com",
     path:     `/repos/${owner}/${repo}/issues/${cfg.github.prNumber}/comments?per_page=100`,
@@ -507,7 +702,7 @@ async function postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, mes
   let existingId = null;
   try {
     const comments = await request(listOpts);
-    const found = comments.find((c) => c.body?.includes(marker));
+    const found    = comments.find((c) => c.body?.includes(marker));
     if (found) existingId = found.id;
   } catch { /* best-effort */ }
 
@@ -515,7 +710,7 @@ async function postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, mes
     ? `/repos/${owner}/${repo}/issues/comments/${existingId}`
     : `/repos/${owner}/${repo}/issues/${cfg.github.prNumber}/comments`;
 
-  const ghOpts = {
+  await request({
     hostname: "api.github.com",
     path:     ghPath,
     method:   existingId ? "PATCH" : "POST",
@@ -526,16 +721,14 @@ async function postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, mes
       "User-Agent":   "QuorumBot/1.0",
       "X-GitHub-Api-Version": "2022-11-28",
     },
-  };
+  }, JSON.stringify({ body }));
 
-  await request(ghOpts, JSON.stringify({ body }));
   console.log(`[QUORUM] GitHub PR comment ${existingId ? "updated" : "posted"}`);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 
 async function main() {
-  // trust-result.json written by the oss-trust check step
   const trustResult = JSON.parse(fs.readFileSync("trust-result.json", "utf8"));
   const { package: pkg, version, ecosystem, outcome: trustOutcome } = trustResult;
 
@@ -544,7 +737,23 @@ async function main() {
     process.exit(0);
   }
 
-  const cfg      = loadConfig();
+  const cfg = loadConfig();
+
+  // ── Resolve source repository ─────────────────────────────────────────────
+  // Priority: explicit env var set in workflow → trust-result.json field → unknown
+  const sourceRepo = cfg.github.registryUrl
+    || trustResult.source_repository
+    || trustResult.registry_url
+    || "";
+  console.log(`[QUORUM] Source repository: ${sourceRepo || "(not provided)"}`);
+
+  // ── Compute trust level from signature data ───────────────────────────────
+  const trust = computeTrustLevel(trustResult);
+  console.log(`[QUORUM] Trust level: ${trust.label} | Sig: ${trust.sigStatusLine}`);
+  if (trust.deductions !== "none") {
+    console.log(`[QUORUM] Trust deductions: ${trust.deductions}`);
+  }
+
   const discord  = new DiscordClient(cfg.discord.token, cfg.discord.channelId, cfg.discord.guildId);
   const quorumId = `QR-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
   const deadline = new Date(Date.now() + cfg.deadlineHours * 3_600_000).toISOString();
@@ -552,26 +761,26 @@ async function main() {
     ? `${cfg.github.serverUrl}/${cfg.github.repo}/pull/${cfg.github.prNumber}`
     : null;
 
-  // Build the update reason once — used in both embeds and the audit row
   const updateReason = buildUpdateReason(cfg.github.prTitle, cfg.github.prBody);
   console.log(`[QUORUM] Update reason: ${updateReason.slice(0, 120).replace(/\n/g, " ")}`);
 
   // ── 1. Post quorum request embed ─────────────────────────────────────────
   console.log(`[QUORUM] ${quorumId} — posting quorum request for ${pkg}@${version}`);
   const message = await discord.postEmbed(
-    pendingEmbed(quorumId, pkg, version, ecosystem, trustOutcome, cfg, deadline, prUrl)
+    pendingEmbed(quorumId, pkg, version, ecosystem, trustOutcome,
+                 cfg, deadline, prUrl, sourceRepo, trust)
   );
   const messageId = message.id;
 
-  // ── 2. Bot seeds both vote reactions so members can one-click react ───────
+  // ── 2. Seed vote reactions ────────────────────────────────────────────────
   await discord.addReaction(messageId, "✅");
-  await sleep(500);   // brief pause to avoid rate-limit
+  await sleep(500);
   await discord.addReaction(messageId, "❌");
   console.log(`[QUORUM] Seed reactions posted. Message ID: ${messageId}`);
 
   // ── 3. Poll until majority or deadline ───────────────────────────────────
   const { verdict, tally, decidedAt } = await pollUntilDecision(
-    discord, messageId, quorumId, pkg, version, ecosystem, trustOutcome, cfg, deadline, prUrl
+    discord, messageId, quorumId, pkg, version, ecosystem, trustOutcome, cfg, deadline
   );
 
   // ── 4. Resolve voter display names ───────────────────────────────────────
@@ -581,7 +790,7 @@ async function main() {
   await discord.updateEmbed(
     messageId,
     resolvedEmbed(quorumId, pkg, version, ecosystem, trustOutcome,
-                  verdict, tally, voterLines, decidedAt, cfg)
+                  verdict, tally, voterLines, decidedAt, cfg, sourceRepo, trust)
   );
   console.log(`[QUORUM] Discord embed updated: ${verdict}`);
 
@@ -591,8 +800,26 @@ async function main() {
     package:            pkg,
     version,
     ecosystem,
+    source_repository:  sourceRepo || "unknown",
+    trust_level:        trust.band,
+    trust_level_score:  trust.score,
+    sig_status:         trust.sigPresent
+                          ? (trust.sigVerified ? "valid" : "invalid")
+                          : "none",
+    sig_algorithm:      trust.sigAlgorithm,
+    sig_strength:       trust.sigStrength,
+    sig_key_id:         trust.sigKeyId,
+    chk_status:         trust.chkPresent
+                          ? (trust.chkVerified ? "verified" : "mismatch")
+                          : "none",
+    chk_algorithm:      trust.chkAlgorithm,
+    flag_typosquatting:    trustResult.flags?.typosquatting     ? "true" : "false",
+    flag_behavior_change:  trustResult.flags?.behavior_change   ? "true" : "false",
+    flag_author_reputation:trustResult.flags?.author_reputation ? "true" : "false",
+    flag_provenance:       trustResult.flags?.provenance_activity ? "true" : "false",
+    trust_deductions:   trust.deductions.replace(/\n/g, " | "),
     trust_outcome:      trustOutcome,
-    update_reason:      updateReason.replace(/\n+/g, " | ").slice(0, 500), // flatten for Sheets
+    update_reason:      updateReason.replace(/\n+/g, " | ").slice(0, 500),
     initiated_at:       new Date().toISOString(),
     deadline,
     quorum_size:        cfg.members.length,
@@ -615,7 +842,8 @@ async function main() {
   await appendAuditRow(cfg, auditRow);
 
   // ── 7. Post final result to GitHub PR ────────────────────────────────────
-  await postGitHubResult(cfg, pkg, version, verdict, tally, quorumId, messageId);
+  await postGitHubResult(cfg, pkg, version, verdict, tally,
+                          quorumId, messageId, sourceRepo, trust);
 
   // ── 8. Exit code drives workflow gate ─────────────────────────────────────
   if (verdict === "APPROVED") {
