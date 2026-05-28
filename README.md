@@ -345,6 +345,14 @@ When a package is flagged, the bot posts a quorum request embed:
 │  BLOCKED. A simple majority quorum is required to override   │
 │  and allow this dependency into the PR.                      │
 │                                                              │
+│  📝 Reason for update                                        │
+│  ─────────────────────────────────────────────────────────   │
+│  fix(deps): bump lodash from 4.17.19 to 4.17.20             │
+│                                                              │
+│  Addresses CVE-2021-23337 (prototype pollution via           │
+│  _.template). Lodash 4.17.19 is in the dependency graph     │
+│  of build-tools and test-utils. This patch upgrades both.   │
+│                                                              │
 │  Quorum ID      QR-1748441234-A3F9C1                         │
 │  Trust Outcome  BLOCKED                                      │
 │  Ecosystem      npm                                          │
@@ -367,6 +375,13 @@ Quorum members click ✅ or ❌ directly on the message. The bot checks reaction
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ ✅  Quorum APPROVED — `lodash@4.17.20`                       │
+│                                                              │
+│  📝 Reason for update                                        │
+│  ─────────────────────────────────────────────────────────   │
+│  fix(deps): bump lodash from 4.17.19 to 4.17.20             │
+│                                                              │
+│  Addresses CVE-2021-23337 (prototype pollution via           │
+│  _.template). Lodash 4.17.19 is in the dependency graph…    │
 │                                                              │
 │  Quorum ID      QR-1748441234-A3F9C1                         │
 │  Final Verdict  APPROVED                                     │
@@ -413,13 +428,14 @@ Formula: `required = floor(size × threshold) + 1`
 
 ### Audit log
 
-Every quorum event writes one row to Google Sheets with 20 columns:
+Every quorum event writes one row to Google Sheets with 21 columns:
 
 | Column | Description | Example |
 |---|---|---|
 | `quorum_id` | Unique ID for this vote | `QR-1748441234-A3F9C1` |
 | `package` / `version` / `ecosystem` | Package identity | `lodash` / `4.17.20` / `npm` |
 | `trust_outcome` | Original trust check result | `blocked` |
+| `update_reason` | PR title + body — the stated reason for the update, flattened to a single line (max 500 chars) | `fix(deps): bump lodash \| Addresses CVE-2021-23337…` |
 | `initiated_at` / `deadline` | Vote open and expiry timestamps | ISO 8601 |
 | `quorum_size` / `threshold` | Eligible voters and approval fraction | `3` / `0.5` |
 | `approve_count` / `deny_count` / `abstain_count` | Vote tally | `2` / `1` / `0` |
@@ -429,6 +445,15 @@ Every quorum event writes one row to Google Sheets with 20 columns:
 | `discord_message_id` | Links back to the exact embed | `1234567890123456789` |
 | `github_pr` / `run_id` | PR URL and Actions run ID | Full URL / numeric |
 | `override_rationale` | Summary sentence | `Quorum override: 2/3 approved` |
+
+Update the Sheets header row to add `update_reason` after `trust_outcome`:
+
+```
+quorum_id | package | version | ecosystem | trust_outcome | update_reason |
+initiated_at | deadline | quorum_size | threshold | approve_count | deny_count |
+abstain_count | final_verdict | decided_at | decided_by | voter_detail |
+discord_message_id | github_pr | run_id | override_rationale
+```
 
 ---
 
@@ -482,8 +507,8 @@ Every quorum event writes one row to Google Sheets with 20 columns:
 7. Rename the first tab to `QuorumAuditLog` (or set `SHEETS_SHEET_NAME` to match).
 8. Add a header row with these column names — the engine appends data rows below row 1:
    ```
-   quorum_id | package | version | ecosystem | trust_outcome | initiated_at |
-   deadline | quorum_size | threshold | approve_count | deny_count |
+   quorum_id | package | version | ecosystem | trust_outcome | update_reason |
+   initiated_at | deadline | quorum_size | threshold | approve_count | deny_count |
    abstain_count | final_verdict | decided_at | decided_by | voter_detail |
    discord_message_id | github_pr | run_id | override_rationale
    ```
