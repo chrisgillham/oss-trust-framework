@@ -1,0 +1,46 @@
+{
+  "_comment": "Approved GitHub Actions pinned to commit SHAs. Gate 9 enforces this list.",
+  "_doc": "To add an action: find the commit SHA for the version tag at github.com/owner/repo/tags, then add an entry here.",
+  "approved": [
+    {
+      "action": "actions/checkout",
+      "sha": "11bd71901bbe5b1630ceea73d27597364c9af683",
+      "version_tag": "v4.2.2",
+      "approved_by": "security-team",
+      "approved_at": "2026-01-15",
+      "notes": "Standard checkout action"
+    },
+    {
+      "action": "actions/setup-python",
+      "sha": "65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236",
+      "version_tag": "v4.7.1",
+      "approved_by": "security-team",
+      "approved_at": "2026-01-15",
+      "notes": "Python environment setup"
+    },
+    {
+      "action": "actions/upload-artifact",
+      "sha": "65c4c4a1ddee5b72f698ffd38de1571e1f6a35c5",
+      "version_tag": "v4.6.0",
+      "approved_by": "security-team",
+      "approved_at": "2026-01-15",
+      "notes": "Artifact upload for trust-result.json"
+    },
+    {
+      "action": "actions/download-artifact",
+      "sha": "fa0a91b85d4f404e444306234a3fe6ee7e2dd2d5",
+      "version_tag": "v4.1.8",
+      "approved_by": "security-team",
+      "approved_at": "2026-01-15",
+      "notes": "Artifact download for quorum-override job"
+    },
+    {
+      "action": "actions/github-script",
+      "sha": "60a0d83039c74a4aee543508d2ffcb1c3799cdea",
+      "version_tag": "v7.0.1",
+      "approved_by": "security-team",
+      "approved_at": "2026-01-15",
+      "notes": "PR comment posting"
+    }
+  ]
+}

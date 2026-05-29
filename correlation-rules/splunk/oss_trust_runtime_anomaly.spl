@@ -1,0 +1,82 @@
+| Comment """
+OSS Trust Framework — Splunk Runtime Anomaly Correlation Rule
+Correlates process/network behavior against approved package inventory
+within the 30-day monitoring window.
+
+Deploy to: Splunk Enterprise / Splunk Cloud
+Alert type: Real-time rolling window (5 minutes)
+Severity: HIGH
+MITRE ATT&CK: T1195.001 (Supply Chain Compromise: Compromise Software Dependencies)
+"""
+
+index=main OR index=endpoint
+(sourcetype="XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+ OR sourcetype="linux:syslog"
+ OR sourcetype="osquery:results")
+earliest=-5m
+
+| eval proc_path = coalesce(Image, process_path, cmdline)
+| eval parent_path = coalesce(ParentImage, parent_process_path)
+| eval dest_ip = coalesce(DestinationIp, remote_ip, dest_ip)
+| eval dest_port = coalesce(DestinationPort, remote_port, dest_port)
+
+| lookup oss_trust_monitoring_packages.csv package AS package_name
+  OUTPUT monitoring_expires_at quorum_id trust_score trust_level
+
+| where isnotnull(quorum_id) AND now() < strptime(monitoring_expires_at, "%Y-%m-%dT%H:%M:%S%z")
+
+| eval is_sensitive_file_access = if(
+    match(proc_path, "(?i)(etc/passwd|etc/shadow|\.ssh|\.aws|\.gcloud|\.npmrc|\.pypirc|proc/self/environ)"),
+    1, 0
+  )
+
+| eval is_suspicious_process = if(
+    match(proc_path, "(?i)(curl|wget|nc |ncat|netcat|bash -c|sh -c|python -c|perl -e|ruby -e)"),
+    1, 0
+  )
+
+| eval is_outbound_connection = if(
+    isnotnull(dest_ip) AND NOT cidrmatch("10.0.0.0/8", dest_ip)
+                       AND NOT cidrmatch("172.16.0.0/12", dest_ip)
+                       AND NOT cidrmatch("192.168.0.0/16", dest_ip)
+                       AND dest_ip != "127.0.0.1",
+    1, 0
+  )
+
+| eval anomaly_detected = if(
+    is_sensitive_file_access=1 OR is_suspicious_process=1 OR is_outbound_connection=1,
+    1, 0
+  )
+
+| where anomaly_detected = 1
+
+| eval anomaly_type = case(
+    is_sensitive_file_access=1, "sensitive_file_access",
+    is_suspicious_process=1,    "suspicious_process_execution",
+    is_outbound_connection=1,   "unexpected_outbound_connection",
+    true(),                     "unknown"
+  )
+
+| eval days_since_approval = round((now() - strptime(monitoring_expires_at, "%Y-%m-%dT%H:%M:%S%z") + 30*86400) / 86400, 1)
+
+| eval severity = case(
+    trust_level="LOW",    "critical",
+    trust_level="MEDIUM", "high",
+    true(),               "medium"
+  )
+
+| table _time package_name quorum_id anomaly_type severity proc_path dest_ip dest_port
+       trust_score trust_level days_since_approval host
+
+| eval webhook_payload = json_object(
+    "package",              package_name,
+    "version",              "unknown",
+    "quorum_id",            quorum_id,
+    "anomaly_type",         anomaly_type,
+    "severity",             severity,
+    "days_since_approval",  days_since_approval,
+    "environment",          host,
+    "detected_at",          strftime(now(), "%Y-%m-%dT%H:%M:%SZ")
+  )
+
+| sendalert oss_trust_anomaly_webhook param.payload=$webhook_payload$

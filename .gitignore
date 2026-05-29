@@ -1,28 +1,43 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.egg
 *.egg-info/
 dist/
 build/
+.eggs/
 .venv/
 venv/
-.eggs/
+env/
+.Python
 
 # Environment
 .env
-*.env.local
+.env.local
+*.env
 
-# Testing
+# OSS Trust runtime cache
+.oss-trust-cache/
+
+# Test / coverage
 .pytest_cache/
 .coverage
 htmlcov/
+.mypy_cache/
+.ruff_cache/
 
-# IDE
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
+Thumbs.db
 
-# Secrets — never committed
-config/trusted_keys.asc
+# Secrets — never commit these
+service-account.json
+*.pem
+*.key

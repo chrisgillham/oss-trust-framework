@@ -1,191 +1,224 @@
 """
-CLI entry point for the OSS Trust Framework.
-
-Usage:
-    oss-trust check --package requests --version 2.32.3 --ecosystem PyPI
-    oss-trust zeroday request --cve CVE-2024-XXXXX --package requests --version 2.32.4
-    oss-trust zeroday approve --request-id abc123def456 --approver-id approver_001
-    oss-trust zeroday status --request-id abc123def456
+OSS Trust Framework — CLI Entry Point
+Provides `oss-trust check` and `oss-trust zeroday` commands.
 """
-
 from __future__ import annotations
 
 import asyncio
 import json
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
-from rich import box
+from rich import print as rprint
 
 console = Console()
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="oss-trust")
 def main() -> None:
-    """OSS Trust Framework — supply chain validation pipeline."""
+    """OSS Trust Framework — supply chain trust validation."""
 
 
-# ---------------------------------------------------------------------------
-# oss-trust check
-# ---------------------------------------------------------------------------
+# ── oss-trust check ───────────────────────────────────────────────────────────
 
 @main.command()
-@click.option("--package", required=True, help="Package name (e.g. requests)")
-@click.option("--version", required=True, help="Exact version (e.g. 2.32.3)")
-@click.option(
-    "--ecosystem",
-    required=True,
-    type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven"], case_sensitive=True),
-)
-@click.option("--github-repo", default=None, help="owner/repo for OpenSSF Scorecard")
-@click.option("--config", default="config/pipeline.yaml", show_default=True)
-@click.option("--output", type=click.Choice(["table", "json"]), default="table")
-def check(package: str, version: str, ecosystem: str, github_repo: str | None, config: str, output: str) -> None:
-    """Run the full validation pipeline against a package version."""
-    from oss_trust_framework.pipeline.orchestrator import Pipeline
-    from oss_trust_framework.config import load_config
+@click.option("--package",    required=True, help="Package name")
+@click.option("--version",    required=True, help="Package version")
+@click.option("--ecosystem",  required=True, help="Ecosystem (npm, pypi, cargo, go, maven, nuget)")
+@click.option("--config",     default="config/pipeline.yaml", help="Pipeline config path")
+@click.option("--output",     default="table", type=click.Choice(["table", "json"]),
+              help="Output format")
+@click.option("--registry-url", default="", help="Source registry URL")
+def check(
+    package: str,
+    version: str,
+    ecosystem: str,
+    config: str,
+    output: str,
+    registry_url: str,
+) -> None:
+    """Run the full nine-gate trust pipeline against a single package."""
+    from oss_trust.pipeline import Pipeline
 
-    cfg = load_config(config)
-    pipeline = Pipeline(config=cfg)
-
+    pipeline = Pipeline(config_path=config)
     result = asyncio.run(
-        pipeline.run(package=package, version=version, ecosystem=ecosystem, github_repo=github_repo)
+        pipeline.run(package, version, ecosystem, registry_url=registry_url)
     )
 
     if output == "json":
-        click.echo(json.dumps({
-            "outcome": result.outcome.value,
-            "package": result.package,
-            "version": result.version,
-            "ecosystem": result.ecosystem,
-            "lane": result.lane,
-            "message": result.message,
-            "gates": [{"gate": g.gate, "passed": g.passed, "decision": g.decision} for g in result.gates],
-        }, indent=2))
+        click.echo(result.to_json())
     else:
-        _render_result_table(result)
+        _print_table(result)
 
-    outcome = result.outcome.value
-    sys.exit(0 if outcome == "approved" else 1)
+    # Exit code drives GitHub Actions gate
+    exit_codes = {
+        "approved":    0,
+        "hold":        0,   # Informational; doesn't fail the gate alone
+        "quarantined": 1,
+        "blocked":     1,
+        "rejected":    1,
+    }
+    sys.exit(exit_codes.get(result.outcome, 1))
 
 
-# ---------------------------------------------------------------------------
-# oss-trust zeroday
-# ---------------------------------------------------------------------------
+def _print_table(result) -> None:
+    from rich.panel import Panel
+    from rich.text import Text
+
+    outcome_color = {
+        "approved":    "green",
+        "hold":        "yellow",
+        "quarantined": "red",
+        "blocked":     "bright_red",
+        "rejected":    "bright_red",
+    }.get(result.outcome, "white")
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold {outcome_color}]{result.outcome.upper()}[/bold {outcome_color}]  "
+            f"[dim]{result.package}@{result.version} ({result.ecosystem})[/dim]",
+            title="OSS Trust Framework Result",
+            border_style=outcome_color,
+        )
+    )
+
+    # Gate results table
+    table = Table(title="Gate Results", show_header=True, header_style="bold blue")
+    table.add_column("Gate",     style="cyan",  no_wrap=True)
+    table.add_column("Outcome",  style="bold",  no_wrap=True)
+    table.add_column("Duration", style="dim",   no_wrap=True)
+    table.add_column("Message")
+
+    outcome_styles = {
+        "approved":    "green",
+        "hold":        "yellow",
+        "quarantined": "red",
+        "blocked":     "bright_red",
+        "rejected":    "bright_red",
+    }
+
+    for gr in result.gate_results:
+        style = outcome_styles.get(gr.outcome, "white")
+        table.add_row(
+            gr.gate,
+            f"[{style}]{gr.outcome.upper()}[/{style}]",
+            f"{gr.duration_ms:.0f}ms",
+            gr.message[:100] + ("..." if len(gr.message) > 100 else ""),
+        )
+
+    console.print(table)
+
+    # Trust score
+    score_color = "green" if result.trust_score >= 80 else \
+                  "yellow" if result.trust_score >= 50 else "red"
+    console.print(
+        f"\n[bold]Trust Score:[/bold] "
+        f"[{score_color}]{result.trust_score}/100 ({result.trust_level})[/{score_color}]"
+    )
+
+    if result.trust_deductions:
+        console.print("[bold]Deductions:[/bold]")
+        for d in result.trust_deductions:
+            console.print(f"  [dim]{d}[/dim]")
+
+    console.print()
+
+
+# ── oss-trust zeroday ─────────────────────────────────────────────────────────
 
 @main.group()
 def zeroday() -> None:
-    """Manage zero-day expedited exception requests."""
+    """Zero-day expedited lane commands."""
 
 
 @zeroday.command("request")
-@click.option("--cve", required=True, help="CVE ID (e.g. CVE-2024-12345)")
-@click.option("--package", required=True)
-@click.option("--version", required=True)
-@click.option("--ecosystem", required=True, type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven"]))
-@click.option("--requester", required=True, help="Email of the person requesting the exception")
-@click.option("--config", default="config/pipeline.yaml", show_default=True)
-def zd_request(cve: str, package: str, version: str, ecosystem: str, requester: str, config: str) -> None:
-    """Request a zero-day expedited exception for a package update."""
-    from oss_trust_framework.zeroday.validator import validate_zero_day_cve
-    from oss_trust_framework.config import load_config, build_quorum_manager
+@click.option("--cve",       required=True, help="CVE ID (e.g. CVE-2024-12345)")
+@click.option("--package",   required=True, help="Package name")
+@click.option("--version",   required=True, help="Package version")
+@click.option("--requester", required=True, help="Requester email")
+@click.option("--ticket",    default="",    help="Ticket/issue URL (required if require_ticket=true)")
+@click.option("--config",    default="config/pipeline.yaml", help="Pipeline config path")
+def zeroday_request(
+    cve: str,
+    package: str,
+    version: str,
+    requester: str,
+    ticket: str,
+    config: str,
+) -> None:
+    """Request a zero-day CVE exception to bypass the age gate."""
+    import yaml
+    from oss_trust.zeroday import ZeroDayLane
 
-    cfg = load_config(config)
+    with open(config) as f:
+        cfg = yaml.safe_load(f)
 
-    # Step 1: validate CVE
-    console.print(f"[bold]Validating CVE {cve}...[/bold]")
-    cve_result = asyncio.run(validate_zero_day_cve(cve_id=cve, package=package, version=version, ecosystem=ecosystem))
-
-    if not cve_result.confirmed:
-        console.print(f"[red]CVE validation failed:[/red] {cve_result.message}")
-        sys.exit(1)
-
-    console.print(f"[green]CVE confirmed[/green] by {cve_result.sources_confirmed} sources.")
-
-    # Step 2: create quorum request
-    qm = build_quorum_manager(cfg)
-    req = qm.create_request(
-        cve_id=cve, package=package, version=version, ecosystem=ecosystem, requester=requester
+    lane   = ZeroDayLane(cfg.get("zero_day", {}))
+    result = asyncio.run(
+        lane.request_exception(cve, package, version, requester, ticket)
     )
 
-    console.print(f"\n[bold]Quorum request created[/bold]")
-    console.print(f"  Request ID : [cyan]{req.request_id}[/cyan]")
-    console.print(f"  Approvals  : 0 / {req.required_approvers} required")
-    console.print(f"  Expires    : 6 hours from now")
-    console.print(f"\nSend this request ID to your named approvers:")
-    for aid, email in req.eligible_approvers.items():
-        console.print(f"  {email}  →  oss-trust zeroday approve --request-id {req.request_id} --approver-id {aid}")
+    click.echo(json.dumps(result, indent=2))
+    sys.exit(0 if result["approved"] else 1)
 
 
-@zeroday.command("approve")
-@click.option("--request-id", required=True)
-@click.option("--approver-id", required=True)
-@click.option("--mfa-token", required=True, prompt="MFA token", hide_input=True)
-@click.option("--config", default="config/pipeline.yaml", show_default=True)
-def zd_approve(request_id: str, approver_id: str, mfa_token: str, config: str) -> None:
-    """Record an approver's vote on a zero-day exception request."""
-    from oss_trust_framework.config import load_config, build_quorum_manager
+@zeroday.command("validate-token")
+@click.option("--token",   required=True)
+@click.option("--package", required=True)
+@click.option("--config",  default="config/pipeline.yaml")
+def zeroday_validate(token: str, package: str, config: str) -> None:
+    """Validate that a zero-day exception token is still valid."""
+    import yaml
+    from oss_trust.zeroday import ZeroDayLane
 
-    cfg = load_config(config)
-    qm = build_quorum_manager(cfg)
+    with open(config) as f:
+        cfg = yaml.safe_load(f)
 
-    result = asyncio.run(qm.record_approval(request_id, approver_id, mfa_token))
-
-    if "error" in result:
-        console.print(f"[red]Approval failed:[/red] {result['error']}")
-        sys.exit(1)
-
-    console.print(f"[green]Approval recorded.[/green] {result['approvals_received']}/{result['approvals_required']} approvals received.")
-    if result["status"] == "approved":
-        console.print(f"\n[bold green]Quorum reached.[/bold green] Run `oss-trust check` to continue the pipeline.")
+    lane  = ZeroDayLane(cfg.get("zero_day", {}))
+    valid = asyncio.run(lane.validate_token(token, package))
+    click.echo(json.dumps({"valid": valid}))
+    sys.exit(0 if valid else 1)
 
 
-@zeroday.command("status")
-@click.option("--request-id", required=True)
-@click.option("--config", default="config/pipeline.yaml", show_default=True)
-def zd_status(request_id: str, config: str) -> None:
-    """Check the status of a zero-day exception request."""
-    from oss_trust_framework.config import load_config, build_quorum_manager
+# ── oss-trust anomaly ────────────────────────────────────────────────────────
 
-    cfg = load_config(config)
-    qm = build_quorum_manager(cfg)
-    status = qm.get_status(request_id)
+@main.command()
+@click.option("--package",           required=True)
+@click.option("--version",           required=True)
+@click.option("--quorum-id",         required=True)
+@click.option("--anomaly-type",      default="unknown")
+@click.option("--severity",          default="medium")
+@click.option("--days-since-approval", default=0, type=int)
+@click.option("--config",            default="config/pipeline.yaml")
+def anomaly(
+    package: str,
+    version: str,
+    quorum_id: str,
+    anomaly_type: str,
+    severity: str,
+    days_since_approval: int,
+    config: str,
+) -> None:
+    """Report a runtime anomaly for a monitored package."""
+    import yaml
+    from oss_trust.runtime import RuntimeTelemetry
 
-    if status is None:
-        console.print(f"[red]Request {request_id} not found.[/red]")
-        sys.exit(1)
+    with open(config) as f:
+        cfg = yaml.safe_load(f)
 
-    color = {"approved": "green", "pending": "yellow", "expired": "red", "denied": "red"}.get(status.value, "white")
-    console.print(f"Request [cyan]{request_id}[/cyan]: [{color}]{status.value.upper()}[/{color}]")
-
-
-# ---------------------------------------------------------------------------
-# Rendering helpers
-# ---------------------------------------------------------------------------
-
-def _render_result_table(result) -> None:
-    outcome_color = {
-        "approved": "green",
-        "blocked": "red",
-        "quarantined": "yellow",
-        "hold": "yellow",
-        "pending_quorum": "cyan",
-    }.get(result.outcome.value, "white")
-
-    console.print(f"\n[bold]{result.package}@{result.version}[/bold] ({result.ecosystem}) — lane: {result.lane}")
-    console.print(f"Outcome: [{outcome_color}]{result.outcome.value.upper()}[/{outcome_color}]")
-    console.print(f"Message: {result.message}\n")
-
-    table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
-    table.add_column("Gate", style="dim")
-    table.add_column("Passed")
-    table.add_column("Decision")
-
-    for g in result.gates:
-        passed_str = "[green]yes[/green]" if g.passed else "[red]no[/red]"
-        table.add_row(g.gate, passed_str, g.decision)
-
-    console.print(table)
+    telemetry = RuntimeTelemetry(cfg.get("runtime", {}))
+    result = asyncio.run(
+        telemetry.handle_anomaly({
+            "package":             package,
+            "version":             version,
+            "quorum_id":           quorum_id,
+            "anomaly_type":        anomaly_type,
+            "severity":            severity,
+            "days_since_approval": days_since_approval,
+        })
+    )
+    click.echo(json.dumps(result, indent=2))

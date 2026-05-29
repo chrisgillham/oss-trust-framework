@@ -1,0 +1,51 @@
+{
+  "kind": "Scheduled",
+  "properties": {
+    "displayName": "OSS Trust — Runtime Anomaly in Monitored Package",
+    "description": "Detects process or network behavior consistent with supply-chain compromise from a package approved by the OSS Trust Framework within the 30-day post-deployment monitoring window.",
+    "severity": "High",
+    "enabled": true,
+    "query": "let monitoring_packages = externaldata(package_name:string, quorum_id:string, trust_level:string, monitoring_expires_at:datetime, trust_score:int)\n  ['https://storage.your-org.com/oss-trust/monitoring-packages.csv']\n  with(format='csv');\nlet sensitive_paths = dynamic(['/etc/passwd', '/etc/shadow', '/.ssh/', '/.aws/', '/.gcloud/', '/proc/self/environ']);\nlet suspicious_procs = dynamic(['curl', 'wget', 'nc', 'ncat', 'python', 'perl', 'ruby']);\nSecurityEvent\n| where TimeGenerated > ago(5m)\n| extend proc_name = tostring(split(CommandLine, ' ')[0])\n| where proc_name in (suspicious_procs)\n   or CommandLine has_any (sensitive_paths)\n| join kind=inner (monitoring_packages | where monitoring_expires_at > now()) on $left.Computer == $right.package_name\n| extend anomaly_type = case(\n    CommandLine has_any(sensitive_paths), 'sensitive_file_access',\n    proc_name in (suspicious_procs), 'suspicious_process_execution',\n    'unknown'\n  )\n| extend days_in_window = datetime_diff('day', now(), monitoring_expires_at - 30d)\n| project TimeGenerated, Computer, CommandLine, proc_name, anomaly_type,\n          package_name, quorum_id, trust_level, trust_score, days_in_window",
+    "queryFrequency": "PT5M",
+    "queryPeriod": "PT5M",
+    "triggerOperator": "GreaterThan",
+    "triggerThreshold": 0,
+    "suppressionDuration": "PT1H",
+    "suppressionEnabled": true,
+    "tactics": ["InitialAccess", "Execution"],
+    "techniques": ["T1195", "T1195.001"],
+    "alertDetailsOverride": {
+      "alertDisplayNameFormat": "OSS Trust Anomaly — {{anomaly_type}} from package {{package_name}} (quorum {{quorum_id}})",
+      "alertSeverityColumnName": "trust_level"
+    },
+    "customDetails": {
+      "QuorumId":    "quorum_id",
+      "PackageName": "package_name",
+      "TrustLevel":  "trust_level",
+      "TrustScore":  "trust_score",
+      "AnomalyType": "anomaly_type",
+      "DaysInWindow": "days_in_window"
+    },
+    "incidentConfiguration": {
+      "createIncident": true,
+      "groupingConfiguration": {
+        "enabled": true,
+        "reopenClosedIncident": false,
+        "lookbackDuration": "PT1H",
+        "matchingMethod": "Selected",
+        "groupByEntities": ["Host", "Account"],
+        "groupByCustomDetails": ["QuorumId"],
+        "groupByAlertDetails": ["AlertSeverity"]
+      }
+    },
+    "automationRules": [
+      {
+        "order": 1,
+        "actionType": "RunPlaybook",
+        "actionConfiguration": {
+          "logicAppResourceId": "/subscriptions/{{SUBSCRIPTION_ID}}/resourceGroups/{{RG}}/providers/Microsoft.Logic/workflows/oss-trust-anomaly-webhook"
+        }
+      }
+    ]
+  }
+}

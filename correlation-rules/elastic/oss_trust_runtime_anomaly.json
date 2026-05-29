@@ -1,0 +1,44 @@
+{
+  "name": "OSS Trust — Runtime Anomaly in Monitored Package",
+  "description": "Detects suspicious process or network behavior originating from a package approved by the OSS Trust Framework quorum within the 30-day monitoring window. Correlates against the oss_trust_monitoring_packages index.",
+  "author": ["Chris Gillham"],
+  "tags": ["supply-chain", "oss-trust", "T1195.001"],
+  "risk_score": 73,
+  "severity": "high",
+  "type": "eql",
+  "language": "eql",
+  "index": [
+    "logs-endpoint.events.*",
+    "winlogbeat-*",
+    ".siem-signals-*",
+    "oss_trust_monitoring_packages-*"
+  ],
+  "query": "sequence by host.name with maxspan=30s\n  [process where event.type == \"start\"\n    and (\n      process.name in (\"curl\", \"wget\", \"nc\", \"ncat\", \"python\", \"perl\", \"ruby\")\n      or process.args : (\"*/etc/passwd\", \"*/.ssh/*\", \"*/.aws/*\", \"*/proc/self/environ\")\n    )\n  ] by process.parent.name\n  [network where event.type == \"connection\"\n    and not cidr_match(destination.ip, \"10.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"127.0.0.1/32\")\n  ] by process.name",
+  "alert_suppression": {
+    "group_by": ["host.name", "process.name"],
+    "duration": {
+      "value": 5,
+      "unit": "m"
+    }
+  },
+  "actions": [
+    {
+      "action_type_id": ".webhook",
+      "group": "default",
+      "params": {
+        "method": "post",
+        "url": "{{ANOMALY_WEBHOOK_URL}}",
+        "body": "{\"package\": \"{{context.rule.name}}\", \"quorum_id\": \"{{context.rule.tags}}\", \"anomaly_type\": \"process_network_correlation\", \"severity\": \"high\", \"environment\": \"{{host.name}}\"}"
+      }
+    }
+  ],
+  "meta": {
+    "from": "1m",
+    "kibana_siem_app_url": "{{KIBANA_URL}}/app/security",
+    "created": "2026-05-28"
+  },
+  "references": [
+    "https://github.com/chrisgillham/oss-trust-framework",
+    "https://attack.mitre.org/techniques/T1195/001/"
+  ]
+}

@@ -1,0 +1,89 @@
+# OSS Trust Framework — Policy-as-Code
+# Evaluated after trust scoring, before quorum is triggered.
+# Rules are evaluated in order; the first matching rule wins.
+# Substitute DISCORD USER IDs for the placeholder values below.
+
+quorum_policy:
+
+  # ── Default: simple majority of configured members ──────────────────────
+  default:
+    threshold: 0.5
+    deadline_hours: 24
+    description: "Standard simple majority quorum"
+
+  # ── LOW trust score → elevated threshold + Security Architect required ──
+  low_trust_override:
+    condition: "trust_score < 30"
+    threshold: 0.75
+    deadline_hours: 12
+    require_members:
+      - "${CISO_DISCORD_ID}"
+    notify_additional:
+      - "${LEGAL_DISCORD_ID}"
+    description: "LOW trust score — elevated threshold and CISO vote required"
+
+  # ── Critical-path dependencies (auth, crypto, TLS) ──────────────────────
+  critical_path_override:
+    condition: "slsa_level < 3 AND dependency_class IN [auth, crypto, tls]"
+    threshold: 0.67
+    deadline_hours: 8
+    require_members:
+      - "${SECURITY_ARCH_DISCORD_ID}"
+      - "${CISO_DISCORD_ID}"
+    description: "Critical-path dependency with insufficient SLSA — named approvers required"
+
+  # ── AI hallucination flag → immediate CISO notification ─────────────────
+  ai_hallucination_override:
+    condition: "flag_ai_hallucination == true"
+    threshold: 1.0
+    deadline_hours: 4
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: "AI hallucination flag — unanimous approval required; likely attack vector"
+
+  # ── License change → notify legal regardless of trust score ─────────────
+  license_change_notify:
+    condition: "license_changed == true"
+    threshold: 0.5             # Voting threshold unchanged from default
+    notify_additional:
+      - "${LEGAL_DISCORD_ID}"
+    description: "License changed — legal team notified; standard quorum applies"
+
+  # ── Copyleft license → legal must be in approving set ───────────────────
+  copyleft_require_legal:
+    condition: "license_copyleft == true"
+    threshold: 0.67
+    require_members:
+      - "${LEGAL_DISCORD_ID}"
+    deadline_hours: 48
+    description: "Copyleft license — legal approval required"
+
+  # ── Typosquatting flag → treat as near-certain attack ───────────────────
+  typosquatting_escalation:
+    condition: "flag_typosquatting == true"
+    threshold: 1.0
+    deadline_hours: 4
+    require_members:
+      - "${CISO_DISCORD_ID}"
+    description: "Typosquatting detected — unanimous approval required"
+
+  # ── Runtime anomaly: previously approved package fires a SIEM alert ─────
+  runtime_anomaly_escalation:
+    condition: "runtime_anomaly == true AND days_since_approval < 30"
+    threshold: 1.0
+    deadline_hours: 4
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    action_on_approved: revoke_package  # Trigger rollback
+    description: "Runtime anomaly within monitoring window — unanimous revocation quorum"
+
+  # ── Package with prior DENIED history ────────────────────────────────────
+  prior_denial_escalation:
+    condition: "historical_prior_denials >= 1"
+    threshold: 0.75
+    deadline_hours: 12
+    notify_additional:
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: "Package has prior DENIED quorum — elevated threshold applied"
