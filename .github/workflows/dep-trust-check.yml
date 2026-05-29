@@ -172,10 +172,25 @@ jobs:
       - name: Run quorum engine
         if: steps.check.outputs.needed == 'true'
         env:
-          # Discord
-          DISCORD_BOT_TOKEN:   ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_CHANNEL_ID:  ${{ secrets.DISCORD_CHANNEL_ID }}
-          DISCORD_GUILD_ID:    ${{ secrets.DISCORD_GUILD_ID }}
+          # ── Notification platform — set QUORUM_PLATFORM to discord, teams, or slack
+          QUORUM_PLATFORM: ${{ secrets.QUORUM_PLATFORM || 'discord' }}
+
+          # Discord (used when QUORUM_PLATFORM=discord)
+          DISCORD_BOT_TOKEN:  ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+          DISCORD_GUILD_ID:   ${{ secrets.DISCORD_GUILD_ID }}
+
+          # MS Teams (used when QUORUM_PLATFORM=teams)
+          TEAMS_WEBHOOK_URL:      ${{ secrets.TEAMS_WEBHOOK_URL }}
+          TEAMS_VOTE_WEBHOOK_URL: ${{ secrets.TEAMS_VOTE_WEBHOOK_URL }}
+          TEAMS_TENANT_ID:        ${{ secrets.TEAMS_TENANT_ID }}
+
+          # Slack (used when QUORUM_PLATFORM=slack)
+          SLACK_BOT_TOKEN:        ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID:       ${{ secrets.SLACK_CHANNEL_ID }}
+          SLACK_VOTE_WEBHOOK_URL: ${{ secrets.SLACK_VOTE_WEBHOOK_URL }}
+          VOTE_SERVER_PORT:       "3000"
+
           # Google Sheets audit log
           SHEETS_CREDENTIALS:    ${{ secrets.SHEETS_CREDENTIALS }}
           SHEETS_SPREADSHEET_ID: ${{ secrets.SHEETS_SPREADSHEET_ID }}
@@ -183,15 +198,15 @@ jobs:
           GITHUB_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER:       ${{ github.event.pull_request.number }}
           GITHUB_RUN_ID:   ${{ github.run_id }}
-          # PR context — surfaced in embed so voters can see the update reason
+          # PR context — surfaced in vote message so members can see the update reason
           PR_TITLE:        ${{ github.event.pull_request.title }}
           PR_BODY:         ${{ github.event.pull_request.body }}
           # Source registry URL
           PKG_REGISTRY_URL: ${{ matrix.registry_url }}
-          # Policy-as-code named role IDs
-          CISO_DISCORD_ID:         ${{ secrets.CISO_DISCORD_ID }}
+          # Policy-as-code named role IDs (use platform-appropriate member IDs)
+          CISO_DISCORD_ID:          ${{ secrets.CISO_DISCORD_ID }}
           SECURITY_ARCH_DISCORD_ID: ${{ secrets.SECURITY_ARCH_DISCORD_ID }}
-          LEGAL_DISCORD_ID:        ${{ secrets.LEGAL_DISCORD_ID }}
+          LEGAL_DISCORD_ID:         ${{ secrets.LEGAL_DISCORD_ID }}
           # Runtime telemetry
           SIEM_HEC_ENDPOINT:  ${{ secrets.SIEM_HEC_ENDPOINT }}
           SIEM_HEC_TOKEN:     ${{ secrets.SIEM_HEC_TOKEN }}
@@ -236,10 +251,13 @@ jobs:
         env:
           SIEM_HEC_ENDPOINT: ${{ secrets.SIEM_HEC_ENDPOINT }}
           SIEM_HEC_TOKEN:    ${{ secrets.SIEM_HEC_TOKEN }}
+          MATRIX_PACKAGE:    ${{ matrix.package }}
+          MATRIX_VERSION:    ${{ matrix.version }}
+          MATRIX_ECOSYSTEM:  ${{ matrix.ecosystem }}
+          QUORUM_ID:         ${{ steps.get_quorum_id.outputs.quorum_id }}
         run: |
-          quorum_id=$(jq -r '.quorum_id // "no-quorum"' trust-result.json 2>/dev/null || echo "no-quorum")
           python - << 'PYEOF'
-          import asyncio, json, os, sys
+          import asyncio, os
           from oss_trust.runtime import RuntimeTelemetry
           import yaml
 
@@ -257,8 +275,3 @@ jobs:
           ))
           print(f"Monitoring window opened — expires: {expires}")
           PYEOF
-        env:
-          MATRIX_PACKAGE:   ${{ matrix.package }}
-          MATRIX_VERSION:   ${{ matrix.version }}
-          MATRIX_ECOSYSTEM: ${{ matrix.ecosystem }}
-          QUORUM_ID:        ${{ steps.get_quorum_id.outputs.quorum_id }}

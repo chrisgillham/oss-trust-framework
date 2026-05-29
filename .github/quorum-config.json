@@ -1,6 +1,8 @@
 {
-  "_comment": "Quorum configuration for dep-trust-check.yml override votes.",
-  "_doc": "Add Discord user IDs to 'members'. Find a user ID: Discord → Settings → Advanced → Developer Mode ON, then right-click any user → Copy User ID.",
+  "_comment": "OSS Trust Framework — Quorum Configuration",
+  "_doc": "Set 'platform' to discord, teams, or slack. Configure the matching section below. Member IDs are platform-specific: Discord = numeric user ID, Teams = AAD Object ID (GUID), Slack = member ID (Uxxxxxxxx).",
+
+  "platform": "discord",
 
   "members": [
     "111111111111111111",
@@ -9,15 +11,51 @@
   ],
 
   "threshold": 0.5,
-  "_threshold_note": "Fraction of quorum required for approval. 0.5 = strict simple majority (>50%). E.g. for 3 members: 2 votes needed. For 5 members: 3 votes needed.",
+  "_threshold_note": "Fraction of quorum required for majority. 0.5 = strictly >50%. For 3 members: 2 votes needed. For 5 members: 3 votes needed.",
 
   "deadlineHours": 24,
-  "_deadlineHours_note": "Hours before an unresolved vote is closed and treated as DENIED (fail-closed).",
+  "_deadlineHours_note": "Hours before an unresolved vote closes as EXPIRED (DENIED, fail-closed).",
+
+  "_platform_configs": {
+    "_note": "Only the block matching your chosen 'platform' value is used. Set credentials via GitHub Secrets, not here.",
+
+    "discord": {
+      "_required_secrets": ["DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DISCORD_GUILD_ID"],
+      "_member_id_format": "Numeric user ID — Developer Mode → right-click username → Copy User ID",
+      "_voting_mechanism": "Bot seeds ✅ ❌ reactions; engine polls GET /reactions every 30 s"
+    },
+
+    "teams": {
+      "_required_secrets": ["TEAMS_WEBHOOK_URL", "TEAMS_VOTE_WEBHOOK_URL"],
+      "_optional_secrets": ["TEAMS_TENANT_ID"],
+      "_member_id_format": "Azure AD Object ID (GUID) — Azure Portal → Users → select user → Object ID",
+      "_voting_mechanism": "Adaptive Card with Action.Submit buttons; votes POST to TEAMS_VOTE_WEBHOOK_URL",
+      "_vote_endpoint_note": "TEAMS_VOTE_WEBHOOK_URL must be a publicly reachable HTTPS endpoint (Azure Function, Logic App, or ngrok tunnel for testing). It receives POST {quorum_id, vote, member_id, member_name} and should respond 200 with {type:'message', text:'Vote recorded'}.",
+      "_vote_server_note": "The engine also starts a local HTTP server on VOTE_SERVER_PORT (default 3000) to receive vote callbacks directly when running in an environment where the runner is reachable."
+    },
+
+    "slack": {
+      "_required_secrets": ["SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID", "SLACK_VOTE_WEBHOOK_URL"],
+      "_member_id_format": "Slack member ID — click profile → More → Copy member ID (starts with U)",
+      "_voting_mechanism": "Block Kit message with primary/danger buttons; votes POST to SLACK_VOTE_WEBHOOK_URL via Slack interactivity",
+      "_vote_endpoint_note": "SLACK_VOTE_WEBHOOK_URL must match your Slack app's Interactivity Request URL. The engine starts a local HTTP server on VOTE_SERVER_PORT (default 3000) to receive these callbacks.",
+      "_confirm_dialogs": "Both ✅ and ❌ buttons show a confirmation dialog before submitting — prevents accidental votes."
+    }
+  },
 
   "_env_overrides": {
-    "note": "Any field here can be overridden at runtime via environment variables.",
-    "QUORUM_MEMBERS":         "Comma-separated Discord user IDs — overrides members array",
-    "QUORUM_THRESHOLD":       "Float 0.0–1.0 — overrides threshold",
-    "QUORUM_DEADLINE_HOURS":  "Integer — overrides deadlineHours"
+    "_note": "Any field can be overridden at runtime via environment variables without changing this file.",
+    "QUORUM_PLATFORM":       "discord | teams | slack",
+    "QUORUM_MEMBERS":        "Comma-separated platform-specific member IDs",
+    "QUORUM_THRESHOLD":      "Float 0.0–1.0",
+    "QUORUM_DEADLINE_HOURS": "Integer hours",
+    "VOTE_SERVER_PORT":      "Integer port for Teams/Slack vote callback server (default 3000)"
+  },
+
+  "namedRoles": {
+    "_note": "Maps policy.yaml role names to platform-specific member IDs. Used by policy-as-code for required member enforcement.",
+    "CISO":          "000000000000000000",
+    "SECURITY_ARCH": "000000000000000000",
+    "LEGAL":         "000000000000000000"
   }
 }

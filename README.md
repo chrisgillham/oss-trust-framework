@@ -34,6 +34,11 @@ A world-class, multi-layer security framework that validates open source depende
 - [Runtime telemetry and post-merge monitoring](#runtime-telemetry-and-post-merge-monitoring)
 - [Public trust registry](#public-trust-registry)
 - [Developer feedback loop](#developer-feedback-loop)
+- [Notification platform](#notification-platform)
+  - [Discord](#discord)
+  - [MS Teams](#ms-teams)
+  - [Slack](#slack)
+  - [Choosing a platform](#choosing-a-platform)
 - [Discord quorum override](#discord-quorum-override)
   - [Quorum architecture](#quorum-architecture)
   - [Discord vote flow](#discord-vote-flow)
@@ -891,12 +896,120 @@ Pull request opened or updated
                                               │  30-day window opens    │
                                               └─────────────────────────┘
 ```
+---
+
+## Notification platform
+
+The quorum engine supports three notification platforms. Set `QUORUM_PLATFORM` (or `platform` in `quorum-config.json`) to select one. Only the secrets for the chosen platform are required.
+
+| Platform | Voting mechanism | Best for |
+|---|---|---|
+| `discord` (default) | Bot seeds ✅ ❌ reactions; engine polls reactions every 30 s | Teams already on Discord; free tier sufficient |
+| `teams` | Adaptive Card with ✅ ❌ Action.Submit buttons; votes arrive via webhook | Organizations standardized on Microsoft 365 |
+| `slack` | Block Kit message with ✅ ❌ buttons + confirmation dialog; votes arrive via Slack interactivity | Organizations standardized on Slack |
+
+### Discord
+
+See [Setup guide → 1. Create the Discord bot](#1-create-the-discord-bot) for full steps.
+
+**Required secrets:** `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`, `DISCORD_GUILD_ID`
+
+**Member ID format:** 18-19 digit numeric user ID. Developer Mode on → right-click username → Copy User ID.
+
+**How voting works:** The bot seeds ✅ and ❌ reactions on the embed. Quorum members click a reaction. The engine polls `GET /reactions` every 30 seconds until majority is reached or the deadline expires.
+
+### MS Teams
+
+**Required secrets:** `TEAMS_WEBHOOK_URL`, `TEAMS_VOTE_WEBHOOK_URL`
+
+**Optional secrets:** `TEAMS_TENANT_ID`
+
+**Member ID format:** Azure AD Object ID (GUID). Azure Portal → Users → select user → Object ID field.
+
+**How voting works:** The engine posts an Adaptive Card to the channel via the incoming webhook. The card has ✅ **Approve Override** and ❌ **Deny Override** `Action.Submit` buttons. When a member clicks a button, Teams POSTs the vote payload to `TEAMS_VOTE_WEBHOOK_URL`. The engine also starts a local HTTP server on `VOTE_SERVER_PORT` (default `3000`) to capture these callbacks directly.
+
+**Setting up the vote endpoint:**
+
+`TEAMS_VOTE_WEBHOOK_URL` must be a publicly reachable HTTPS endpoint. Options:
+
+1. **Azure Function** (recommended for production):
+   ```
+   POST {function-url}/api/quorum-vote
+   Body: { "quorum_id": "QR-...", "vote": "approve", "member_id": "<aad-guid>", "member_name": "Alice" }
+   Response: { "type": "message", "text": "Vote recorded" }
+   ```
+   The function should forward the vote to the engine's local server at `http://localhost:3000` within the same Actions runner network, or persist it to a shared store (Azure Table Storage, Cosmos DB).
+
+2. **Logic App** — use the HTTP trigger and same request/response contract above.
+
+3. **ngrok tunnel** (testing only):
+   ```bash
+   ngrok http 3000   # Expose the engine's local vote server
+   # Set TEAMS_VOTE_WEBHOOK_URL to the ngrok HTTPS URL
+   ```
+
+**Incoming webhook setup:**
+1. In Teams, go to the approval channel → ••• → Connectors → Incoming Webhook → Configure
+2. Name it `OSS Trust Quorum` and copy the webhook URL → `TEAMS_WEBHOOK_URL`
+
+**Setting up Action.Submit routing:**
+The Adaptive Card's `Action.Submit` buttons include `url: TEAMS_VOTE_WEBHOOK_URL` in the action data. When submitted, Teams sends the card data as a POST to that URL with `member_id` and `member_name` resolved from the authenticated Teams user context.
+
+### Slack
+
+**Required secrets:** `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `SLACK_VOTE_WEBHOOK_URL`
+
+**Member ID format:** Slack member ID starting with `U`. Click a user's profile → ••• More → Copy member ID.
+
+**How voting works:** The engine posts a Block Kit message with ✅ and ❌ buttons (both with confirmation dialogs to prevent accidental votes). When a member clicks, Slack POSTs an interactivity payload to `SLACK_VOTE_WEBHOOK_URL`. The engine's local HTTP server on `VOTE_SERVER_PORT` (default `3000`) captures these callbacks.
+
+**Bot scopes required:** `chat:write`, `chat:write.public`, `users:read`
+
+**Setting up the Slack app:**
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → From scratch
+2. Under **OAuth & Permissions**, add scopes: `chat:write`, `chat:write.public`, `users:read`
+3. Install the app to your workspace → copy the **Bot User OAuth Token** → `SLACK_BOT_TOKEN`
+4. Under **Interactivity & Shortcuts** → enable Interactivity → set **Request URL** to `SLACK_VOTE_WEBHOOK_URL`
+5. Invite the bot to your approval channel: `/invite @your-bot-name`
+6. Copy the channel ID (right-click channel → Copy link → extract the `C...` portion) → `SLACK_CHANNEL_ID`
+
+**Vote endpoint contract** (same for all push-based platforms):
+
+The engine starts an HTTP server on `VOTE_SERVER_PORT`. For Slack, it expects the standard `application/x-www-form-urlencoded` interactivity payload with a `payload` field containing the JSON action data:
+
+```json
+{
+  "user":    { "id": "U123456", "name": "alice" },
+  "actions": [{ "action_id": "approve", "value": "QR-1748441234-A3F9C1" }]
+}
+```
+
+The engine responds immediately with `200` and an ephemeral acknowledgement message to dismiss Slack's loading state.
+
+**Latest vote wins:** If a member changes their vote by clicking the other button, the latest vote replaces their prior vote in the tally. The audit log records the final state only.
+
+### Choosing a platform
+
+| Consideration | Discord | Teams | Slack |
+|---|---|---|---|
+| Setup complexity | Low | Medium | Medium |
+| Voting UX | Click reaction | Click card button (with confirmation) | Click button (with confirmation dialog) |
+| Vote change | Re-react (remove + add) | Click other button (latest wins) | Click other button (latest wins) |
+| Message updates | In-place embed edit | New follow-up card | In-place message edit |
+| Accidental vote prevention | None (reactions are easy to click) | None | ✅ Confirmation dialog on both buttons |
+| Requires external endpoint | No | Yes (TEAMS_VOTE_WEBHOOK_URL) | Yes (SLACK_VOTE_WEBHOOK_URL) |
+| Member ID lookup | Developer Mode toggle | Azure Portal | Profile menu |
+| Free tier sufficient | ✅ Yes | ✅ Yes (incoming webhook is free) | ✅ Yes (free plan allows bots) |
+
 
 ---
 
 ## Setup guide
 
 ### 1. Create the Discord bot
+
+> **Skip this section** if you are using Teams or Slack. See [Notification platform](#notification-platform) for platform-specific setup.
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) and click **New Application**.
 2. Name it (e.g. `dep-trust-bot`) and click **Create**.
@@ -971,15 +1084,22 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 
 | Secret name | Value | Required |
 |---|---|---|
-| `DISCORD_BOT_TOKEN` | Bot token from step 1 | ✅ Yes |
-| `DISCORD_CHANNEL_ID` | Approval channel ID from step 1 | ✅ Yes |
-| `DISCORD_GUILD_ID` | Server ID from step 1 | ✅ Yes |
-| `SHEETS_CREDENTIALS` | Base64-encoded service account JSON from step 2 | ✅ Yes |
-| `SHEETS_SPREADSHEET_ID` | Spreadsheet ID from step 2 | ✅ Yes |
+| `QUORUM_PLATFORM` | `discord`, `teams`, or `slack` | ✅ Yes |
+| `DISCORD_BOT_TOKEN` | Bot token (Discord only) | Discord only |
+| `DISCORD_CHANNEL_ID` | Approval channel ID (Discord only) | Discord only |
+| `DISCORD_GUILD_ID` | Server ID (Discord only) | Discord only |
+| `TEAMS_WEBHOOK_URL` | Incoming webhook URL for approval channel (Teams only) | Teams only |
+| `TEAMS_VOTE_WEBHOOK_URL` | HTTPS endpoint receiving Action.Submit vote payloads (Teams only) | Teams only |
+| `TEAMS_TENANT_ID` | Azure AD tenant ID (Teams only) | Optional |
+| `SLACK_BOT_TOKEN` | Bot OAuth token with `chat:write`, `users:read` (Slack only) | Slack only |
+| `SLACK_CHANNEL_ID` | Channel ID for quorum messages (Slack only) | Slack only |
+| `SLACK_VOTE_WEBHOOK_URL` | Slack app Interactivity Request URL (Slack only) | Slack only |
+| `SHEETS_CREDENTIALS` | Base64-encoded service account JSON | ✅ Yes |
+| `SHEETS_SPREADSHEET_ID` | Spreadsheet ID from URL | ✅ Yes |
 | `OSV_API_KEY` | OSV.dev API key | Optional |
-| `SIEM_HEC_ENDPOINT` | Splunk/SIEM HEC endpoint URL | Optional (required for runtime telemetry) |
-| `SIEM_HEC_TOKEN` | Splunk/SIEM HEC token | Optional (required for runtime telemetry) |
-| `ANOMALY_WEBHOOK_URL` | Webhook your SIEM calls when a runtime anomaly fires | Optional |
+| `SIEM_HEC_ENDPOINT` | Splunk/SIEM HEC endpoint URL | Optional |
+| `SIEM_HEC_TOKEN` | Splunk/SIEM HEC token | Optional |
+| `ANOMALY_WEBHOOK_URL` | Webhook your SIEM calls on runtime anomaly | Optional |
 | `ENDOR_LABS_API_KEY` | Endor Labs API key for reachability analysis | Optional |
 | `PUBLIC_REGISTRY_API_KEY` | OSS Trust public registry API key | Optional |
 
