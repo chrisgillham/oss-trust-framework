@@ -1,0 +1,12 @@
+# OSS Trust Framework — SBOM output directory
+# CycloneDX SBOMs are generated here automatically by Gate 6 (SBOM Delta)
+# during every dependency trust pipeline run.
+#
+# Files generated:
+#   sbom-{ecosystem}.cdx.json   CycloneDX 1.6 JSON (machine-readable)
+#   sbom-{ecosystem}.cdx.xml    CycloneDX 1.6 XML (optional)
+#   manifest.json               Index of all SBOM files with metadata
+#
+# These files represent the complete, verified dependency tree including
+# all transitive dependencies discovered during the trust evaluation.
+# They are updated on every PR that modifies a dependency file.

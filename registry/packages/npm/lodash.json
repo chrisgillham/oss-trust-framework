@@ -1,0 +1,26 @@
+{
+  "_comment": "Example seed entry — replace with real contribution data via registry-ingest.yml",
+  "package":   "lodash",
+  "ecosystem": "npm",
+  "updated_at": "2026-05-28T00:00:00Z",
+  "contribution_count": 0,
+  "aggregate": {
+    "approved_count":   0,
+    "denied_count":     0,
+    "expired_count":    0,
+    "band_votes":       { "HIGH": 0, "MEDIUM": 0, "LOW": 0 },
+    "community_band":   "",
+    "slsa_levels_observed": [],
+    "signal_fire_counts": {
+      "typosquatting":       0,
+      "behavior_change":     0,
+      "author_reputation":   0,
+      "provenance_activity": 0,
+      "ai_hallucination":    0,
+      "no_signature":        0,
+      "weak_signature":      0,
+      "no_checksum":         0
+    }
+  },
+  "versions": {}
+}
