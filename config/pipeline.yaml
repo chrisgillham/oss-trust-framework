@@ -84,6 +84,15 @@ sbom:
   min_transitive_trust_score: 50      # Transitive packages below this fail the parent
   hash_algorithm: sha256              # sha256 | sha512
 
+  # ── SBOM generation (side-effect of Gate 6) ─────────────────────────────
+  # Every pipeline run generates a complete, up-to-date CycloneDX 1.6 SBOM
+  # covering all direct and transitive dependencies in the resolved tree.
+  # This runs regardless of gate outcome — the SBOM is always current.
+  generate_sbom: true
+  sbom_formats: ["json"]             # json | xml | both
+  sbom_output_dir: "sbom"            # Output directory in repo root
+  commit_sbom: false                 # Auto-commit SBOM to repo (use in post-merge job only)
+
 sandbox:
   runtime: gvisor                # gvisor | firecracker | docker
   network: none                  # none | loopback | restricted
@@ -113,6 +122,27 @@ cicd_audit:
   flag_pull_request_target: true      # Flag pull_request_target with write perms
   flag_script_injection: true         # Flag ${{ github.event.* }} in run: steps
 
+# ── Application criticality (consumed by policy.yaml tier rules) ────────────
+# Set APP_CRITICALITY env var in the workflow to override per-repo.
+# standard | elevated | mission_critical | critical_infrastructure
+app_criticality: standard
+
+# ── AppSec team member IDs (Tier 2 escalation) ───────────────────────────────
+# These supplement the team quorum when policy rules trigger AppSec escalation.
+# Set via APPSEC_LEAD_ID and APPSEC_MEMBER_IDS environment variables / secrets.
+appsec:
+  lead_env_var: APPSEC_LEAD_ID           # Single required AppSec approver
+  members_env_var: APPSEC_MEMBER_IDS     # Comma-separated optional additional AppSec members
+
+# ── Reporting visibility (CISO / Legal / Compliance dashboard) ───────────────
+reporting:
+  # Post-verdict summary notification to senior stakeholders.
+  # Sent as a DM or channel post; does not affect the vote or its outcome.
+  enabled: true
+  digest_enabled: false          # Weekly portfolio-level digest
+  digest_day: monday
+  digest_hour_utc: 9
+
 zero_day:
   required_approvers: 2          # Minimum quorum for expedited lane
   token_ttl_hours: 6             # Exception token expiry
@@ -136,12 +166,18 @@ runtime:
 
 public_registry:
   enabled: false                 # Opt-in — set to true to participate
-  endpoint: https://api.oss-trust.dev/registry
-  api_key_env: PUBLIC_REGISTRY_API_KEY
+  # Registry lives directly in the OSS Trust Framework GitHub repo.
+  # No external API or API key required — reads use the public raw content
+  # API (unauthenticated); writes open a GitHub Issue using GITHUB_TOKEN.
+  repo:   chrisgillham/oss-trust-framework
+  branch: main
   contribute_verdicts: true
   contribute_signal_flags: true
   consume_community_scores: true
   community_score_weight: 0.15   # Weight of community score in final trust modifier
+  # Set to 'test' to use the test-registry branch instead of main
+  # (prevents test data polluting the production registry during development)
+  registry_mode: production      # production | test
 
 out_of_band_trust:
   sources:

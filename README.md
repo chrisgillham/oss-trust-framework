@@ -621,28 +621,85 @@ runtime:
 
 ## Public trust registry
 
-When `public_registry: true` is set in `pipeline.yaml`, the framework contributes anonymized, aggregated trust signal data to a community trust registry — a crowd-sourced package reputation score built from real quorum decisions across all participating organizations.
+When `public_registry.enabled: true` is set in `config/pipeline.yaml`, the framework contributes anonymized, aggregated trust signal data to a community trust registry — a crowd-sourced package reputation score built from real quorum decisions across all participating organizations.
 
-No organization-specific data (PR content, quorum member identities, internal package names) is shared. What is contributed:
+The registry lives directly in the `chrisgillham/oss-trust-framework` GitHub repository under `registry/`. **No separate API server or API key is required.**
+
+- **Reads** use the GitHub raw content API — unauthenticated, no credentials needed
+- **Writes** open a GitHub Issue with the label `registry-contribution` using the `GITHUB_TOKEN` already in your workflow — no new secrets required
+- The `registry-ingest.yml` workflow validates, merges, and closes each contribution issue automatically
+
+No organization-specific data is shared. What IS contributed (anonymized aggregates only):
 
 - Package name, version, ecosystem
-- Trust score band (HIGH / MEDIUM / LOW) — not the raw score
+- Trust score band (HIGH / MEDIUM / LOW) — not the raw numeric score
 - Verdict (APPROVED / DENIED / EXPIRED) — not voter identities
-- Which signal categories fired (not their values)
+- Which signal categories fired — not their values
 - SLSA level observed
-
-**Why this matters:** Every organization using the framework benefits from the aggregate. A package that has been DENIED by 12 other organizations arrives at your gate with a pre-loaded historical reputation modifier of −15, before your own evaluations begin. This creates a network-effect moat that no single-organization implementation can replicate — and that no commercial vendor currently offers for quorum-based human decisions.
 
 ```yaml
 public_registry:
-  enabled: false              # Opt-in
-  endpoint: https://api.oss-trust.dev/registry
-  api_key: ${PUBLIC_REGISTRY_API_KEY}
+  enabled: false                  # Opt-in — set to true to participate
+  repo:   chrisgillham/oss-trust-framework
+  branch: main
   contribute_verdicts: true
   contribute_signal_flags: true
-  consume_community_scores: true   # Use community history in scoring
+  consume_community_scores: true  # Use community history in scoring
+  registry_mode: production       # production | test
 ```
 
+### Registry structure
+
+```
+registry/
+├── README.md          ← contribution norms and format guide
+├── SCHEMA.md          ← full data schema documentation
+├── index.json         ← fast-lookup index (rebuilt on every ingest)
+└── packages/
+    ├── npm/
+    │   └── lodash.json
+    ├── pypi/
+    │   └── requests.json
+    └── ...            ← one JSON file per package per ecosystem
+```
+
+### Contribution flow
+
+```
+Pipeline evaluation completes (quorum vote resolved)
+        │
+        ▼  (public_registry.enabled: true)
+Engine builds anonymised payload
+  package, version, ecosystem, trust_band, verdict,
+  slsa_level, signals_fired, contribution_id
+        │
+        ▼
+GitHub Issue opened on chrisgillham/oss-trust-framework:
+  Title: "[registry-contribution] npm/lodash@4.17.21"
+  Body:  JSON payload in fenced code block
+  Label: registry-contribution
+        │
+        ▼
+registry-ingest.yml workflow triggers
+  1. Extracts and parses JSON from issue body
+  2. Validates schema, ecosystem, signals, PII scan
+  3. Rate-limit check (one per package per 24 h)
+  4. Deduplicates by contribution_id (SHA-256 of pkg+ver+eco+timestamp)
+  5. Merges into registry/packages/{eco}/{package}.json
+  6. Rebuilds registry/index.json
+  7. Commits and pushes to main
+  8. Comments on and closes the issue
+        │
+        ▼
+Next pipeline run reads updated index (1 HTTP request)
+Community score modifier applied: −10 if band = LOW
+```
+
+### Why this matters
+
+Every organization using the framework benefits from the aggregate. A package that has been DENIED by 12 other organizations arrives at your gate with a pre-loaded historical reputation modifier before your own evaluations begin. This creates a network-effect moat that no single-organization implementation can replicate — and that no commercial vendor currently offers for quorum-based human decisions.
+
+Because the registry is the git history of this repo, every contribution is permanently auditable, tamper-evident, and transparent. There is no black-box scoring algorithm — the aggregation logic is the open-source `scripts/registry_ingest.py` in this repo.
 ---
 
 ## Developer feedback loop
@@ -1101,7 +1158,7 @@ Go to **Settings → Secrets and variables → Actions → New repository secret
 | `SIEM_HEC_TOKEN` | Splunk/SIEM HEC token | Optional |
 | `ANOMALY_WEBHOOK_URL` | Webhook your SIEM calls on runtime anomaly | Optional |
 | `ENDOR_LABS_API_KEY` | Endor Labs API key for reachability analysis | Optional |
-| `PUBLIC_REGISTRY_API_KEY` | OSS Trust public registry API key | Optional |
+| `PUBLIC_REGISTRY_API_KEY` | Not required — registry uses `GITHUB_TOKEN` | N/A |
 
 > `GITHUB_TOKEN` is provided automatically by GitHub Actions — do not add it as a secret.
 

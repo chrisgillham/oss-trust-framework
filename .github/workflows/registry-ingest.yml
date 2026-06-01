@@ -1,0 +1,212 @@
+name: Registry contribution ingest
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: write        # Push registry file updates
+  issues: write          # Comment on and close issues
+
+jobs:
+  ingest:
+    name: Process registry contribution
+    runs-on: ubuntu-latest
+
+    # Only run on issues labeled registry-contribution or with the
+    # [registry-contribution] prefix in the title
+    if: |
+      contains(github.event.issue.labels.*.name, 'registry-contribution') ||
+      startsWith(github.event.issue.title, '[registry-contribution]')
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236  # v4.7.1
+        with:
+          python-version: "3.12"
+
+      # ── Extract and validate the JSON payload from the issue body ─────────
+      - name: Extract payload
+        id: extract
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          result-encoding: string
+          script: |
+            const body = context.payload.issue.body || "";
+
+            // The engine wraps the JSON in a fenced code block for readability
+            // Accept: raw JSON, ```json ... ``` blocks, or ``` ... ``` blocks
+            const fenceMatch = body.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const raw = fenceMatch ? fenceMatch[1].trim() : body.trim();
+
+            // Basic sanity: must start with {
+            if (!raw.startsWith("{")) {
+              core.setFailed("Issue body does not contain a JSON object.");
+              return "";
+            }
+
+            // Validate parseable JSON before passing to Python
+            try {
+              JSON.parse(raw);
+            } catch (e) {
+              core.setFailed(`Invalid JSON in issue body: ${e.message}`);
+              return "";
+            }
+
+            return raw;
+
+      # ── Rate-limit check: one contribution per repo per package per 24 h ──
+      - name: Rate-limit check
+        id: ratelimit
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          result-encoding: string
+          script: |
+            const title  = context.payload.issue.title;
+            const cutoff = new Date(Date.now() - 86_400_000).toISOString();
+
+            // Search for recent closed issues from the same repo with the same title prefix
+            const { data: recent } = await github.rest.issues.listForRepo({
+              owner:    context.repo.owner,
+              repo:     context.repo.repo,
+              state:    "closed",
+              labels:   "registry-contribution",
+              since:    cutoff,
+              per_page: 50,
+            });
+
+            const duplicate = recent.find(
+              (i) => i.title === title && i.number !== context.payload.issue.number
+            );
+
+            if (duplicate) {
+              return `Rate limited: same package contributed within 24h (issue #${duplicate.number})`;
+            }
+            return "";
+
+      # ── Reject if rate-limited ────────────────────────────────────────────
+      - name: Reject rate-limited contribution
+        if: steps.ratelimit.outputs.result != ''
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const reason = `${{ steps.ratelimit.outputs.result }}`;
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: [
+                "## ⏸️ Registry contribution rejected — rate limited",
+                "",
+                `**Reason:** ${reason}`,
+                "",
+                "Contributions are limited to one per package per 24 hours to prevent ballot stuffing.",
+                "Please wait before re-submitting.",
+              ].join("\n"),
+            });
+            await github.rest.issues.update({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              state:        "closed",
+              labels:       ["registry-contribution", "rejected-rate-limit"],
+            });
+
+      # ── Run the Python ingest script ──────────────────────────────────────
+      - name: Run ingest script
+        if: steps.ratelimit.outputs.result == '' && steps.extract.outputs.result != ''
+        id: ingest
+        run: |
+          python scripts/registry_ingest.py \
+            --payload '${{ steps.extract.outputs.result }}' \
+            --issue-number '${{ github.event.issue.number }}'
+        continue-on-error: true
+
+      # ── Commit registry changes on success ───────────────────────────────
+      - name: Commit registry update
+        if: steps.ingest.outcome == 'success'
+        run: |
+          git config user.name  "OSS Trust Registry Bot"
+          git config user.email "registry-bot@oss-trust-framework"
+          git add registry/
+          git diff --cached --quiet || git commit -m \
+            "registry: ingest contribution from issue #${{ github.event.issue.number }}
+
+          ${{ github.event.issue.title }}
+          Contributed by: ${{ github.event.issue.user.login }}
+          "
+          git push
+
+      # ── Comment success and close ─────────────────────────────────────────
+      - name: Close issue — success
+        if: steps.ingest.outcome == 'success'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const payload = JSON.parse(`${{ steps.extract.outputs.result }}`);
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: [
+                "## ✅ Registry contribution accepted",
+                "",
+                `| Field | Value |`,
+                `|-------|-------|`,
+                `| Package | \`${payload.ecosystem}/${payload.package}@${payload.version}\` |`,
+                `| Trust band | \`${payload.trust_band}\` |`,
+                `| Verdict | \`${payload.verdict}\` |`,
+                `| SLSA level | ${payload.slsa_level} |`,
+                `| Contribution ID | \`${payload.contribution_id}\` |`,
+                "",
+                "This data has been merged into the registry and the index has been rebuilt.",
+                "Thank you for contributing to the OSS Trust community registry.",
+              ].join("\n"),
+            });
+            await github.rest.issues.update({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              state:        "closed",
+              labels:       ["registry-contribution", "accepted"],
+            });
+
+      # ── Comment failure and close ─────────────────────────────────────────
+      - name: Close issue — failure
+        if: steps.ingest.outcome == 'failure'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: [
+                "## ❌ Registry contribution rejected — validation failed",
+                "",
+                "The contribution payload failed validation. Common causes:",
+                "",
+                "- Missing or incorrect `schema_version` (must be `\"1.0\"`)",
+                "- `ecosystem` not in allowed list: npm, pypi, cargo, go, maven, nuget, rubygems",
+                "- `trust_band` not in: HIGH, MEDIUM, LOW",
+                "- `verdict` not in: APPROVED, DENIED, EXPIRED",
+                "- `contribution_id` not a valid SHA-256 hex string",
+                "- PII detected in a field (email, IP, GUID)",
+                "- Duplicate `contribution_id` (already processed)",
+                "",
+                "See [registry/SCHEMA.md](registry/SCHEMA.md) for the full schema.",
+                "",
+                "If you believe this rejection is incorrect, please open a discussion.",
+              ].join("\n"),
+            });
+            await github.rest.issues.update({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: context.payload.issue.number,
+              state:        "closed",
+              labels:       ["registry-contribution", "rejected-validation"],
+            });

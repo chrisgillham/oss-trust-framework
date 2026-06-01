@@ -548,24 +548,105 @@ https://raw.githubusercontent.com/chrisgillham/oss-trust-framework/main/registry
 
 ## Part 6 — Quorum member configuration
 
-Edit `.github/quorum-config.json` in the repo:
+The framework uses a **three-tier quorum model**. The right people vote on each decision — the engineers and ops staff who know the dependency are the first line, with security and legal stepping in only when the risk profile warrants it.
+
+### The three tiers
+
+**Tier 1 — Team Quorum (day-to-day)**
+
+These are the people closest to the code. For routine `QUARANTINE` and `BLOCKED` outcomes in standard-criticality applications, they vote alone with no centralized security or legal involvement required. Aim for 3–7 people per application team.
+
+Who to add:
+- Lead developer or tech lead for the application
+- At least one senior engineer
+- DevOps or platform engineer responsible for the pipeline
+- Product owner or engineering manager (optional — adds business context)
+
+Who NOT to add: Do not put CISO or Legal in the day-to-day team quorum. Their involvement is triggered automatically by policy rules when the risk profile warrants it, not by default.
+
+**Tier 2 — AppSec Escalation**
+
+Application Security team members are added to the quorum pool — not replacing the team — when risk signals exceed team-level thresholds. Prior team votes are retained when escalation occurs. AppSec members can also join voluntarily when team members @mention them.
+
+Triggers (automatic, via `policy.yaml`):
+- Trust score < 40
+- Behavior change or author reputation flags
+- SLSA level 0 on auth/crypto/TLS dependency
+- Team quorum expires without majority
+
+**Tier 3 — Enterprise Escalation (CISO and Legal)**
+
+Reserved for mission-critical applications, copyleft or commercial license changes, AI hallucination attacks, and runtime anomaly revocations. They are also in the **reporting visibility** list for all quorum events in their scope — so they have full portfolio awareness without needing to vote on every routine decision.
+
+### Setting up each tier
+
+**Step 1: Set the team tier members** in `.github/quorum-config.json`:
 
 ```json
 {
   "platform": "discord",
-  "members": [
-    "your-discord-user-id-here",
-    "another-member-id-here"
-  ],
-  "threshold": 0.5,
-  "deadlineHours": 24,
-  "namedRoles": {
-    "CISO":          "your-ciso-discord-id",
-    "SECURITY_ARCH": "your-security-architect-id",
-    "LEGAL":         "your-legal-contact-id"
+  "tiers": {
+    "team": {
+      "members": [
+        "your-lead-dev-id",
+        "your-senior-engineer-id",
+        "your-devops-engineer-id"
+      ],
+      "threshold": 0.5,
+      "deadline_hours": 24
+    },
+    "appsec": {
+      "members": [
+        "your-appsec-lead-id",
+        "your-security-engineer-id"
+      ],
+      "threshold": 0.5,
+      "deadline_hours": 12
+    },
+    "enterprise": {
+      "named_roles": {
+        "CISO":               "your-ciso-id",
+        "SECURITY_ARCH":      "your-security-architect-id",
+        "LEGAL_COUNSEL":      "your-legal-counsel-id",
+        "COMPLIANCE_OFFICER": "your-compliance-officer-id"
+      }
+    }
+  },
+  "reporting_visibility": {
+    "always_notify": {
+      "members": ["your-ciso-id"]
+    },
+    "notify_on_elevated_and_above": {
+      "members": ["your-security-architect-id", "your-compliance-officer-id"]
+    },
+    "notify_on_mission_critical_only": {
+      "members": ["your-legal-counsel-id"]
+    }
   }
 }
 ```
+
+**Step 2: Set the application criticality class** — this controls which tier starts the quorum and when escalation is mandatory. Add this as a GitHub secret (`APP_CRITICALITY`) or set it in `config/pipeline.yaml`:
+
+| Class | Who votes | When |
+|---|---|---|
+| `standard` | Team only | Internal tools, developer tooling |
+| `elevated` | Team + AppSec lead required | Customer-facing, PII/PHI, external APIs |
+| `mission_critical` | Team + AppSec + Security Architect required, CISO notified | Financial, healthcare, authentication |
+| `critical_infrastructure` | All tiers, unanimous, CISO + Legal + Compliance required | SCADA, safety systems |
+
+**Step 3: Add GitHub secrets** for each named role so policy.yaml can reference them:
+
+| Secret | Who it identifies |
+|---|---|
+| `APPSEC_LEAD_ID` | Primary AppSec approver (Tier 2) |
+| `APPSEC_MEMBER_IDS` | Comma-separated additional AppSec members |
+| `CISO_DISCORD_ID` | CISO (Tier 3, required for high-severity rules) |
+| `DEPUTY_CISO_ID` | Deputy CISO (backup for CISO rules) |
+| `SECURITY_ARCH_DISCORD_ID` | Security Architect |
+| `LEGAL_DISCORD_ID` | Legal Counsel |
+| `LEGAL_TECH_ID` | Legal technology contact |
+| `COMPLIANCE_OFFICER_ID` | Compliance Officer |
 
 **Member ID format by platform:**
 
@@ -575,7 +656,107 @@ Edit `.github/quorum-config.json` in the repo:
 | Teams | GUID e.g. `a1b2c3d4-e5f6-7890-abcd-ef1234567890` | Azure Portal → Azure AD → Users → user → Object ID |
 | Slack | Starts with `U` e.g. `U0123ABCDE` | Profile → ••• → Copy member ID |
 
-Also update `config/policy.yaml` — replace the `${CISO_DISCORD_ID}` placeholders with the actual IDs from your `.github/quorum-config.json` `namedRoles` block, or set them as GitHub secrets (`CISO_DISCORD_ID`, `SECURITY_ARCH_DISCORD_ID`, `LEGAL_DISCORD_ID`) — the policy engine resolves `${ENV_VAR}` placeholders at runtime.
+### Reporting visibility for senior stakeholders
+
+The `reporting_visibility` section in `quorum-config.json` controls who receives a summary notification after every quorum verdict — regardless of whether they voted. This gives CISO, Legal, and Compliance full portfolio awareness without requiring their participation in every routine decision.
+
+**Always notify** (`always_notify.members`): Receives a summary of every quorum event across all applications. Add the CISO here.
+
+**Elevated and above** (`notify_on_elevated_and_above.members`): Notified for elevated and mission-critical application events only. Add Security Architects and Compliance Officers here.
+
+**Mission-critical only** (`notify_on_mission_critical_only.members`): Notified only for mission-critical and critical-infrastructure events. Add Legal Counsel here.
+
+**Weekly digest**: Enable `reporting_visibility.digest.enabled: true` and set `channel_id` to a `#security-quorum-digest` channel visible to security leadership. The digest summarizes all quorum events in the past 7 days across the portfolio.
+
+### Escalation flow
+
+```
+PR opened → team quorum posts to #approvals-{team}
+                │
+                ├─ Team reaches majority → APPROVED or DENIED
+                │
+                └─ Trust score < 40 or behavior flags → AppSec escalation
+                            │
+                            ├─ AppSec + team reach majority → APPROVED or DENIED
+                            │
+                            └─ AI hallucination / typosquatting / mission-critical
+                                        │
+                                        └─ CISO + Legal enterprise quorum
+                                                    │
+                                                    └─ Expires → DENIED + incident record
+```
+
+
+---
+
+## Part 7a — SBOM management
+
+Gate 6 (SBOM Delta) generates a complete, up-to-date CycloneDX 1.6 SBOM as a side-effect of every pipeline run. The SBOM covers all direct and transitive dependencies discovered during the trust evaluation — not just the packages listed in your manifest files.
+
+### What gets generated
+
+After every PR that modifies a dependency file, Gate 6 writes:
+
+```
+sbom/
+├── manifest.json              ← Index of all SBOM files with component counts
+├── sbom-npm.cdx.json          ← CycloneDX 1.6 JSON for npm dependencies
+├── sbom-pypi.cdx.json         ← CycloneDX 1.6 JSON for PyPI dependencies
+├── sbom-cargo.cdx.json        ← CycloneDX 1.6 JSON for Cargo dependencies
+└── sbom-go.cdx.json           ← etc.
+```
+
+Each SBOM file contains:
+- Every package in the full transitive dependency tree (not just direct dependencies)
+- Package URL (purl) for each component
+- SHA-256 hash where available from deps.dev
+- SLSA level observed during the trust evaluation
+- Dependency graph (root → all transitive)
+- Metadata linking back to the OSS Trust Framework run ID
+
+### SBOM artifact upload
+
+Every validate job run uploads the `sbom/` directory as a GitHub Actions artifact (`sbom-{ecosystem}`) retained for 90 days. You can download SBOMs for any PR run from the Actions tab without needing to merge the PR.
+
+### SBOM commit on merge
+
+When a PR merges to main, the `runtime-monitor-register` job commits the updated SBOM files directly to the repository. This keeps the repo's `sbom/` directory always in sync with the actual deployed dependency state.
+
+To enable this, ensure the workflow has `contents: write` permission (already set in `dep-trust-check.yml`).
+
+### Configuring SBOM output
+
+In `config/pipeline.yaml`:
+
+```yaml
+sbom:
+  generate_sbom: true          # Enable SBOM generation (default: true)
+  sbom_formats: ["json"]       # json | xml | both
+  sbom_output_dir: "sbom"      # Output directory
+  commit_sbom: false           # Auto-commit (handled by runtime-monitor-register job)
+```
+
+### Consuming the SBOM
+
+The generated SBOMs are standard CycloneDX 1.6 and can be consumed by:
+- **Dependency-Track** — upload `sbom-{ecosystem}.cdx.json` to your Dependency-Track instance for continuous vulnerability tracking
+- **GitHub Dependency Graph** — submit via the GitHub Dependency Submission API (see below)
+- **SIEM / GRC tools** — parse `manifest.json` for component inventory reporting
+- **Legal / procurement** — export component list with license information for open-source review
+
+### Submitting to GitHub Dependency Graph
+
+Add this step to the `runtime-monitor-register` job to keep GitHub's Dependency Graph accurate:
+
+```yaml
+- name: Submit SBOM to GitHub Dependency Graph
+  uses: advanced-security/spdx-dependency-submission-action@v0.0.1
+  with:
+    filePath: "sbom/"
+    filePattern: "*.cdx.json"
+```
+
+Or use the GitHub Dependency Submission API directly with the generated CycloneDX JSON.
 
 ---
 
@@ -954,10 +1135,28 @@ Use this checklist to confirm your installation is complete before going live.
 - [ ] `registry/packages/pypi/requests.json` exists after test
 - [ ] Raw content URL returns JSON in browser
 
+**Quorum members:**
+- [ ] Team tier members added to `.github/quorum-config.json` `tiers.team.members`
+- [ ] AppSec tier members added to `tiers.appsec.members`
+- [ ] Enterprise named roles set in `tiers.enterprise.named_roles`
+- [ ] Reporting visibility members configured
+- [ ] `APP_CRITICALITY` secret set per-repo
+- [ ] `APPSEC_LEAD_ID` secret set
+- [ ] All enterprise role secrets set (`CISO_DISCORD_ID`, `SECURITY_ARCH_DISCORD_ID`, etc.)
+
+**SBOM:**
+- [ ] `sbom/` directory exists in repo root (committed as empty with `.gitkeep`)
+- [ ] After a test pipeline run, `sbom/sbom-{ecosystem}.cdx.json` is generated
+- [ ] SBOM artifact visible in Actions run under `sbom-{ecosystem}`
+- [ ] After merge to main, SBOM committed to repo by `runtime-monitor-register` job
+
 **End-to-end:**
 - [ ] Test PR opened in target repo
 - [ ] `detect-changes` job runs and detects at least one package
 - [ ] `validate` job runs all nine gates
+- [ ] SBOM artifact uploaded successfully
 - [ ] Quorum notification appears in approval channel (if a package was flagged)
+- [ ] Correct tier fires (team for standard, AppSec added for elevated)
 - [ ] Audit row appears in Google Sheets after quorum resolves
+- [ ] Reporting visibility members receive post-verdict notification
 - [ ] PR comment posted with verdict table

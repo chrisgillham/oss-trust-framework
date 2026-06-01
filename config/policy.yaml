@@ -1,89 +1,344 @@
-# OSS Trust Framework — Policy-as-Code
-# Evaluated after trust scoring, before quorum is triggered.
-# Rules are evaluated in order; the first matching rule wins.
-# Substitute DISCORD USER IDs for the placeholder values below.
+# OSS Trust Framework — Policy-as-Code v2.0
+#
+# Tiered quorum governance model:
+#
+#   Tier 1 — Team Quorum
+#     Day-to-day approvals by application engineers, developers, and ops.
+#     These are the people closest to the code who understand the dependency.
+#     Simple majority. No centralized security or legal involvement by default.
+#
+#   Tier 2 — AppSec Escalation
+#     Application Security team members added to the quorum pool when risk
+#     signals exceed team-level thresholds. AppSec joins the existing pool
+#     rather than replacing it — prior team votes are retained.
+#
+#   Tier 3 — Enterprise Escalation
+#     CISO and Legal. Reserved for mission-critical applications, high-severity
+#     trust failures, policy violations, and runtime anomaly revocations.
+#     Their involvement is triggered by explicit rule match, not routine config.
+#
+# Reporting visibility:
+#     CISO, Legal, and Compliance receive summary notifications after every
+#     quorum event in their scope — regardless of whether they voted.
+#     A weekly digest is available for portfolio-level visibility.
+#
+# Rules are evaluated in order. The first matching rule wins.
+# Substitute real member IDs or ${ENV_VAR} references for placeholders.
+# ${ENV_VAR} references are resolved at runtime from GitHub Secrets.
 
 quorum_policy:
 
-  # ── Default: simple majority of configured members ──────────────────────
+  # ════════════════════════════════════════════════════════════════════════════
+  # TIER 1 — TEAM QUORUM  (default day-to-day rules)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── Default: team simple majority ────────────────────────────────────────
   default:
-    threshold: 0.5
+    threshold:      0.5
     deadline_hours: 24
-    description: "Standard simple majority quorum"
+    tier:           "team"
+    description: >
+      Standard simple majority of the application team quorum.
+      Applies to routine dependency updates in standard-criticality applications.
+      No AppSec or Enterprise involvement required.
 
-  # ── LOW trust score → elevated threshold + Security Architect required ──
-  low_trust_override:
-    condition: "trust_score < 30"
-    threshold: 0.75
-    deadline_hours: 12
-    require_members:
-      - "${CISO_DISCORD_ID}"
+  # ── Standard app, minor trust concerns: notify AppSec, team still decides ─
+  standard_appsec_advisory:
+    condition: "trust_score < 60 AND trust_score >= 40"
+    threshold:      0.5
+    deadline_hours: 24
+    tier:           "team"
     notify_additional:
-      - "${LEGAL_DISCORD_ID}"
-    description: "LOW trust score — elevated threshold and CISO vote required"
+      - "${APPSEC_LEAD_ID}"
+    description: >
+      Trust score in the 40–60 range — borderline. Team quorum proceeds normally
+      but AppSec lead is notified for awareness. AppSec may join the vote
+      voluntarily but is not required.
 
-  # ── Critical-path dependencies (auth, crypto, TLS) ──────────────────────
-  critical_path_override:
+  # ── Elevated-criticality app: team + AppSec from the start ───────────────
+  elevated_app_default:
+    condition: "app_criticality == elevated"
+    threshold:      0.5
+    deadline_hours: 16
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+    description: >
+      Elevated-criticality application (customer-facing, PII/PHI, external API).
+      AppSec lead must be in the approving set. Team members vote alongside AppSec.
+      Simple majority of the combined pool.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TIER 2 — APPSEC ESCALATION  (triggered by risk signals)
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── Low trust score: AppSec required, elevated threshold ─────────────────
+  low_trust_appsec_escalation:
+    condition: "trust_score < 40"
+    threshold:      0.67
+    deadline_hours: 12
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+    notify_additional:
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: >
+      Trust score below 40 — significant integrity or provenance concerns.
+      AppSec lead must vote and must be in the approving set. Security Architect
+      notified for awareness. Two-thirds majority of the combined pool required.
+
+  # ── Behavior change flag: AppSec required ────────────────────────────────
+  behavior_change_appsec:
+    condition: "flag_behavior_change == true"
+    threshold:      0.67
+    deadline_hours: 16
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+    description: >
+      New version requests permissions or network access not present in the
+      prior version. This is a primary supply chain attack vector. AppSec lead
+      must review and approve. Team context is critical here — the team knows
+      whether the new behavior is expected for this upgrade.
+
+  # ── Author reputation flag: AppSec review ────────────────────────────────
+  author_reputation_appsec:
+    condition: "flag_author_reputation == true"
+    threshold:      0.67
+    deadline_hours: 16
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+    notify_additional:
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: >
+      New or changed maintainer, or a sudden activity surge after long inactivity
+      — possible account hijack indicator. AppSec lead must approve. Security
+      Architect notified for awareness.
+
+  # ── Provenance / SLSA gap on security-sensitive dependency ───────────────
+  critical_path_appsec:
     condition: "slsa_level < 3 AND dependency_class IN [auth, crypto, tls]"
-    threshold: 0.67
-    deadline_hours: 8
-    require_members:
-      - "${SECURITY_ARCH_DISCORD_ID}"
-      - "${CISO_DISCORD_ID}"
-    description: "Critical-path dependency with insufficient SLSA — named approvers required"
-
-  # ── AI hallucination flag → immediate CISO notification ─────────────────
-  ai_hallucination_override:
-    condition: "flag_ai_hallucination == true"
-    threshold: 1.0
-    deadline_hours: 4
-    require_members:
-      - "${CISO_DISCORD_ID}"
-      - "${SECURITY_ARCH_DISCORD_ID}"
-    description: "AI hallucination flag — unanimous approval required; likely attack vector"
-
-  # ── License change → notify legal regardless of trust score ─────────────
-  license_change_notify:
-    condition: "license_changed == true"
-    threshold: 0.5             # Voting threshold unchanged from default
-    notify_additional:
-      - "${LEGAL_DISCORD_ID}"
-    description: "License changed — legal team notified; standard quorum applies"
-
-  # ── Copyleft license → legal must be in approving set ───────────────────
-  copyleft_require_legal:
-    condition: "license_copyleft == true"
-    threshold: 0.67
-    require_members:
-      - "${LEGAL_DISCORD_ID}"
-    deadline_hours: 48
-    description: "Copyleft license — legal approval required"
-
-  # ── Typosquatting flag → treat as near-certain attack ───────────────────
-  typosquatting_escalation:
-    condition: "flag_typosquatting == true"
-    threshold: 1.0
-    deadline_hours: 4
-    require_members:
-      - "${CISO_DISCORD_ID}"
-    description: "Typosquatting detected — unanimous approval required"
-
-  # ── Runtime anomaly: previously approved package fires a SIEM alert ─────
-  runtime_anomaly_escalation:
-    condition: "runtime_anomaly == true AND days_since_approval < 30"
-    threshold: 1.0
-    deadline_hours: 4
-    require_members:
-      - "${CISO_DISCORD_ID}"
-      - "${SECURITY_ARCH_DISCORD_ID}"
-    action_on_approved: revoke_package  # Trigger rollback
-    description: "Runtime anomaly within monitoring window — unanimous revocation quorum"
-
-  # ── Package with prior DENIED history ────────────────────────────────────
-  prior_denial_escalation:
-    condition: "historical_prior_denials >= 1"
-    threshold: 0.75
+    threshold:      0.67
     deadline_hours: 12
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: >
+      SLSA level below 3 for an auth, crypto, or TLS dependency — no verified
+      build provenance for a security-critical package. Both AppSec lead and
+      Security Architect must vote and approve. Team members vote alongside.
+
+  # ── Prior DENIED history: AppSec awareness, elevated threshold ───────────
+  prior_denial_appsec_notify:
+    condition: "historical_prior_denials >= 1"
+    threshold:      0.75
+    deadline_hours: 12
+    tier:           "team"
+    notify_additional:
+      - "${APPSEC_LEAD_ID}"
+    description: >
+      Package has a prior DENIED verdict in the audit log. Elevated threshold
+      (75%) required from the team. AppSec notified for awareness — they may
+      join the vote if they have concerns, but are not required to.
+
+  # ── Team deadline expired: auto-escalate to AppSec ───────────────────────
+  team_deadline_expired_escalation:
+    condition: "deadline_expired_without_majority == true AND tier == team"
+    threshold:      0.5
+    deadline_hours: 12
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
     notify_additional:
       - "${SECURITY_ARCH_DISCORD_ID}"
-    description: "Package has prior DENIED quorum — elevated threshold applied"
+    description: >
+      Team quorum expired without reaching majority. Automatically escalating
+      to AppSec. Prior team votes are retained. AppSec lead joins the pool and
+      must vote. Deadline resets to 12 hours from escalation time.
+
+  # ── License changed: legal notified, team decides ────────────────────────
+  license_change_legal_notify:
+    condition: "license_changed == true"
+    threshold:      0.5
+    deadline_hours: 24
+    tier:           "team"
+    notify_additional:
+      - "${LEGAL_DISCORD_ID}"
+    description: >
+      License changed between versions. Legal is notified for awareness.
+      The team quorum proceeds at the standard threshold — legal review is
+      advisory unless the new license is copyleft or commercially restricted,
+      which triggers a separate rule below.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TIER 3 — ENTERPRISE ESCALATION  (CISO and Legal)
+  # Reserved for mission-critical applications and high-severity risk events.
+  # Enterprise members are required voters — their absence means the vote
+  # cannot pass even if all other members approve.
+  # ════════════════════════════════════════════════════════════════════════════
+
+  # ── Mission-critical app: Security Architect required, CISO notified ─────
+  mission_critical_app_default:
+    condition: "app_criticality == mission_critical"
+    threshold:      0.67
+    deadline_hours: 8
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    notify_additional:
+      - "${CISO_DISCORD_ID}"
+    description: >
+      Mission-critical application. AppSec lead and Security Architect are
+      required voters. CISO receives a notification for every vote outcome.
+      Two-thirds majority of the combined pool. CISO may join voluntarily
+      but is not required unless the trust score is critically low (see below).
+
+  # ── Mission-critical + very low trust: CISO required ─────────────────────
+  mission_critical_low_trust:
+    condition: "app_criticality == mission_critical AND trust_score < 30"
+    threshold:      0.75
+    deadline_hours: 6
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+      - "${CISO_DISCORD_ID}"
+    description: >
+      Mission-critical application with a critically low trust score (< 30).
+      CISO must vote and must be in the approving set. Three-quarters majority
+      required. This is the highest-stakes routine decision path.
+
+  # ── Critical infrastructure: unanimous, CISO + Legal + Compliance ────────
+  critical_infrastructure:
+    condition: "app_criticality == critical_infrastructure"
+    threshold:      1.0
+    deadline_hours: 4
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+      - "${CISO_DISCORD_ID}"
+      - "${LEGAL_DISCORD_ID}"
+      - "${COMPLIANCE_OFFICER_ID}"
+    description: >
+      Critical infrastructure application. Unanimous approval required.
+      CISO, Legal Counsel, and Compliance Officer must all vote and approve.
+      Any single DENY is final. 4-hour deadline — these decisions must move fast.
+
+  # ── Copyleft license: Legal must approve ─────────────────────────────────
+  copyleft_legal_required:
+    condition: "license_copyleft == true"
+    threshold:      0.67
+    deadline_hours: 48
+    tier:           "team_plus_enterprise"
+    require_members:
+      - "${LEGAL_DISCORD_ID}"
+    notify_additional:
+      - "${COMPLIANCE_OFFICER_ID}"
+    description: >
+      Copyleft license detected. Legal Counsel must vote and approve — a copyleft
+      obligation is a legal matter, not a security matter. 48-hour deadline
+      gives Legal time to review properly. Compliance Officer notified.
+
+  # ── Commercial restriction (SSPL, Commons Clause, BSL): Legal + Compliance ─
+  commercial_restriction_legal:
+    condition: "license_commercial_restrict == true"
+    threshold:      1.0
+    deadline_hours: 48
+    tier:           "team_plus_enterprise"
+    require_members:
+      - "${LEGAL_DISCORD_ID}"
+      - "${COMPLIANCE_OFFICER_ID}"
+    notify_additional:
+      - "${CISO_DISCORD_ID}"
+    description: >
+      Commercial-use restriction detected (SSPL, Commons Clause, BSL, etc.).
+      Legal Counsel AND Compliance Officer must both approve. Unanimous approval
+      required from required members. This is a contract matter — engineering
+      approval is not sufficient.
+
+  # ── AI hallucination: CISO required, treat as active attack ──────────────
+  ai_hallucination_enterprise:
+    condition: "flag_ai_hallucination == true"
+    threshold:      1.0
+    deadline_hours: 4
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    notify_additional:
+      - "${APPSEC_LEAD_ID}"
+      - "${LEGAL_DISCORD_ID}"
+    description: >
+      Package name matches a known AI-fabricated package — treat as an active
+      supply chain attack. CISO and Security Architect must approve unanimously.
+      4-hour deadline. Legal notified in case incident response or disclosure
+      obligations apply. This rule fires regardless of application criticality.
+
+  # ── Typosquatting: treat as near-certain attack ───────────────────────────
+  typosquatting_enterprise:
+    condition: "flag_typosquatting == true"
+    threshold:      1.0
+    deadline_hours: 4
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: >
+      Typosquatting flag — package name closely resembles a known popular package.
+      Near-certain attack vector. CISO and Security Architect must both approve.
+      Unanimous approval required. Team and AppSec may also vote.
+
+  # ── Very low trust (any app criticality): CISO notified ──────────────────
+  critically_low_trust_ciso_notify:
+    condition: "trust_score < 20"
+    threshold:      0.75
+    deadline_hours: 8
+    tier:           "team_plus_appsec"
+    require_members:
+      - "${APPSEC_LEAD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    notify_additional:
+      - "${CISO_DISCORD_ID}"
+    description: >
+      Trust score below 20 — the lowest band across all signal categories.
+      Security Architect must approve. CISO notified. Applies to any application
+      criticality level — even a standard app warrants CISO awareness at this
+      trust level. Three-quarters majority required.
+
+  # ── Runtime anomaly revocation: unanimous, CISO required ─────────────────
+  runtime_anomaly_revocation:
+    condition: "runtime_anomaly == true AND days_since_approval < 30"
+    threshold:      1.0
+    deadline_hours: 4
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    notify_additional:
+      - "${LEGAL_DISCORD_ID}"
+      - "${COMPLIANCE_OFFICER_ID}"
+    action_on_approved: revoke_package
+    description: >
+      Runtime SIEM anomaly within the 30-day monitoring window for a previously
+      approved package. This is a potential active compromise. Unanimous CISO +
+      Security Architect approval required to trigger rollback. Legal and
+      Compliance notified — incident response and potential disclosure obligations
+      may apply. 4-hour deadline: this is time-sensitive.
+
+  # ── AppSec deadline expired: escalate to Enterprise ──────────────────────
+  appsec_deadline_expired_enterprise:
+    condition: "deadline_expired_without_majority == true AND tier == team_plus_appsec"
+    threshold:      0.67
+    deadline_hours: 8
+    tier:           "team_plus_appsec_plus_enterprise"
+    require_members:
+      - "${CISO_DISCORD_ID}"
+      - "${SECURITY_ARCH_DISCORD_ID}"
+    description: >
+      AppSec quorum expired without majority. Final escalation to CISO and
+      Security Architect. If this also expires, the package is DENIED and an
+      incident record is created. All prior votes are retained.

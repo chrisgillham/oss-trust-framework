@@ -1,61 +1,228 @@
 {
-  "_comment": "OSS Trust Framework — Quorum Configuration",
-  "_doc": "Set 'platform' to discord, teams, or slack. Configure the matching section below. Member IDs are platform-specific: Discord = numeric user ID, Teams = AAD Object ID (GUID), Slack = member ID (Uxxxxxxxx).",
+  "_comment": "OSS Trust Framework — Quorum Configuration v2.0",
+  "_doc": "Defines tiered quorum membership, application criticality classes, escalation paths, and reporting-only visibility roles. Member IDs are platform-specific: Discord = numeric user ID (18-19 digits), Teams = AAD Object ID (GUID), Slack = member ID (starts with U).",
 
   "platform": "discord",
 
-  "members": [
-    "111111111111111111",
-    "222222222222222222",
-    "333333333333333333"
-  ],
+  "_platform_member_id_formats": {
+    "discord": "Developer Mode ON → right-click username anywhere → Copy User ID (18-19 digit number)",
+    "teams":   "Azure Portal → Azure Active Directory → Users → select user → Object ID (GUID)",
+    "slack":   "Click user profile → ••• More actions → Copy member ID (starts with U)"
+  },
 
   "threshold": 0.5,
-  "_threshold_note": "Fraction of quorum required for majority. 0.5 = strictly >50%. For 3 members: 2 votes needed. For 5 members: 3 votes needed.",
+  "_threshold_note": "Base fraction for simple majority. Overridden per-tier and per-rule in policy.yaml. 0.5 = strictly >50%. For 3 members: 2 votes needed. For 5 members: 3 votes needed.",
 
   "deadlineHours": 24,
-  "_deadlineHours_note": "Hours before an unresolved vote closes as EXPIRED (DENIED, fail-closed).",
+  "_deadlineHours_note": "Default hours before an unresolved vote closes as EXPIRED (DENIED, fail-closed). Overridden per rule in policy.yaml.",
 
-  "_platform_configs": {
-    "_note": "Only the block matching your chosen 'platform' value is used. Set credentials via GitHub Secrets, not here.",
+  "_quorum_tier_model": {
+    "_overview": "Three-tier quorum model. Day-to-day approvals stay with the people closest to the code. Escalation brings in centralized security and legal only when the risk profile warrants it. Reporting visibility gives senior functions awareness without requiring their vote on routine decisions.",
+    "_tier_1": "Team Quorum — Application, operations, and development team members. First responders for routine dependency updates in their application domain. Simple majority of the team pool.",
+    "_tier_2": "AppSec Escalation — Application Security team members. Called in when trust score drops below threshold, behavior flags fire, or the team quorum deadlines without resolution. Can also be self-selected by team members when they want expert opinion.",
+    "_tier_3": "Enterprise Escalation — CISO and Legal. Reserved for mission-critical applications, policy violations, copyleft/commercial license changes, AI hallucination flags, and runtime anomaly revocations. Their involvement is defined in policy.yaml rules, not routine config."
+  },
 
-    "discord": {
-      "_required_secrets": ["DISCORD_BOT_TOKEN", "DISCORD_CHANNEL_ID", "DISCORD_GUILD_ID"],
-      "_member_id_format": "Numeric user ID — Developer Mode → right-click username → Copy User ID",
-      "_voting_mechanism": "Bot seeds ✅ ❌ reactions; engine polls GET /reactions every 30 s"
+  "tiers": {
+
+    "_tier_1_team_quorum": {
+      "_description": "Day-to-day quorum members. These are the engineers, product owners, and operations staff who own the application and understand its dependency requirements. They vote on routine QUARANTINE/BLOCKED outcomes for packages in their domain. Add 3-7 people per application team for effective majority voting.",
+      "_who_to_add": [
+        "Lead developer or tech lead for the application",
+        "At least one senior engineer from the team",
+        "DevOps or platform engineer responsible for the deployment pipeline",
+        "Product owner or engineering manager (optional — gives business context to votes)",
+        "QA or release engineer if they have security awareness"
+      ],
+      "_who_not_to_add": [
+        "Anyone not familiar with the application's dependency stack",
+        "Do not add CISO or Legal here — their involvement is triggered by policy rules, not routine config",
+        "Avoid adding more than 7 people — decision fatigue sets in and abstentions rise"
+      ]
     },
 
-    "teams": {
-      "_required_secrets": ["TEAMS_WEBHOOK_URL", "TEAMS_VOTE_WEBHOOK_URL"],
-      "_optional_secrets": ["TEAMS_TENANT_ID"],
-      "_member_id_format": "Azure AD Object ID (GUID) — Azure Portal → Users → select user → Object ID",
-      "_voting_mechanism": "Adaptive Card with Action.Submit buttons; votes POST to TEAMS_VOTE_WEBHOOK_URL",
-      "_vote_endpoint_note": "TEAMS_VOTE_WEBHOOK_URL must be a publicly reachable HTTPS endpoint (Azure Function, Logic App, or ngrok tunnel for testing). It receives POST {quorum_id, vote, member_id, member_name} and should respond 200 with {type:'message', text:'Vote recorded'}.",
-      "_vote_server_note": "The engine also starts a local HTTP server on VOTE_SERVER_PORT (default 3000) to receive vote callbacks directly when running in an environment where the runner is reachable."
+    "team": {
+      "_comment": "Replace these placeholder IDs with real member IDs for your application team.",
+      "members": [
+        "111111111111111111",
+        "222222222222222222",
+        "333333333333333333"
+      ],
+      "threshold":      0.5,
+      "deadline_hours": 24,
+      "channel_id":     "",
+      "_channel_id_note": "Optional: override the default channel with a team-specific approval channel. Leave empty to use the global DISCORD_CHANNEL_ID / SLACK_CHANNEL_ID."
     },
 
-    "slack": {
-      "_required_secrets": ["SLACK_BOT_TOKEN", "SLACK_CHANNEL_ID", "SLACK_VOTE_WEBHOOK_URL"],
-      "_member_id_format": "Slack member ID — click profile → More → Copy member ID (starts with U)",
-      "_voting_mechanism": "Block Kit message with primary/danger buttons; votes POST to SLACK_VOTE_WEBHOOK_URL via Slack interactivity",
-      "_vote_endpoint_note": "SLACK_VOTE_WEBHOOK_URL must match your Slack app's Interactivity Request URL. The engine starts a local HTTP server on VOTE_SERVER_PORT (default 3000) to receive these callbacks.",
-      "_confirm_dialogs": "Both ✅ and ❌ buttons show a confirmation dialog before submitting — prevents accidental votes."
+    "_tier_2_appsec": {
+      "_description": "Application Security team members. Called in automatically by policy rules when: trust score < configured threshold, behavior_change or author_reputation flags fire, team quorum expires without resolution, or the package is in a security-sensitive dependency class (auth, crypto, TLS). AppSec members can also be @mentioned manually by team members who want expert input before voting.",
+      "_who_to_add": [
+        "Application security engineers assigned to the application's business unit",
+        "Security architects familiar with the relevant technology stack",
+        "DevSecOps engineers embedded in the development team"
+      ]
+    },
+
+    "appsec": {
+      "_comment": "Replace with real AppSec team member IDs.",
+      "members": [
+        "444444444444444444",
+        "555555555555555555"
+      ],
+      "threshold":      0.5,
+      "deadline_hours": 12,
+      "_escalation_trigger_note": "AppSec is added to the quorum pool (not replacing the team) when policy rules match. The effective quorum becomes team + appsec members."
+    },
+
+    "_tier_3_enterprise": {
+      "_description": "Enterprise-level centralized functions. CISO and Legal are NOT routine quorum members. They are required members only when policy rules explicitly match — mission-critical application classes, copyleft license changes, AI hallucination attacks, runtime anomaly revocations, and any situation where the team + AppSec quorum has expired without resolution on a HIGH business impact application. They receive reporting visibility on all quorum events regardless of whether they voted."
+    },
+
+    "enterprise": {
+      "_comment": "Named roles for enterprise escalation. These map to policy.yaml conditions. Replace with real IDs.",
+      "members": [],
+      "_members_note": "Leave empty — enterprise members are added by named role in policy.yaml rules, not as default pool members.",
+      "named_roles": {
+        "CISO":               "000000000000000000",
+        "DEPUTY_CISO":        "000000000000000000",
+        "SECURITY_ARCH":      "000000000000000000",
+        "LEGAL_COUNSEL":      "000000000000000000",
+        "LEGAL_TECH":         "000000000000000000",
+        "COMPLIANCE_OFFICER": "000000000000000000"
+      }
+    }
+  },
+
+  "application_criticality": {
+    "_description": "Application criticality class determines which tier is the starting quorum and when escalation is mandatory. Set the criticality class in the workflow env var APP_CRITICALITY or in a per-repo override.",
+
+    "classes": {
+
+      "standard": {
+        "_description": "Most internal tools, developer tooling, non-customer-facing applications. Standard quorum: team only. AppSec escalates on policy rule match.",
+        "starting_tier":          "team",
+        "mandatory_appsec":       false,
+        "mandatory_enterprise":   false,
+        "deadline_hours":         24,
+        "threshold":              0.5,
+        "_examples": ["Internal admin tools", "Developer CI tooling", "Test automation frameworks"]
+      },
+
+      "elevated": {
+        "_description": "Customer-facing applications, applications handling PII, or applications with external API integrations. AppSec is added to the quorum pool from the start, not just on escalation.",
+        "starting_tier":          "team_plus_appsec",
+        "mandatory_appsec":       true,
+        "mandatory_enterprise":   false,
+        "deadline_hours":         16,
+        "threshold":              0.5,
+        "_examples": ["Customer portals", "Mobile apps", "External APIs", "Applications processing PII or PHI"]
+      },
+
+      "mission_critical": {
+        "_description": "Applications that are core to business operations, handle financial transactions, involve regulated data (PII/PHI/PCI), or whose failure would have material business impact. Enterprise escalation (CISO or Legal) is required for any QUARANTINE or BLOCKED outcome. Full audit trail mandatory.",
+        "starting_tier":          "team_plus_appsec",
+        "mandatory_appsec":       true,
+        "mandatory_enterprise":   true,
+        "deadline_hours":         8,
+        "threshold":              0.67,
+        "require_named_roles":    ["CISO", "SECURITY_ARCH"],
+        "_examples": ["Core banking / payment processing", "Healthcare record systems", "Identity and authentication services", "Financial reporting systems", "Regulatory compliance systems"]
+      },
+
+      "critical_infrastructure": {
+        "_description": "Systems whose compromise would have safety, national security, or catastrophic business continuity implications. Unanimous approval required. CISO, Legal, and Compliance Officer must all be in the approving set.",
+        "starting_tier":          "team_plus_appsec",
+        "mandatory_appsec":       true,
+        "mandatory_enterprise":   true,
+        "deadline_hours":         4,
+        "threshold":              1.0,
+        "require_named_roles":    ["CISO", "SECURITY_ARCH", "LEGAL_COUNSEL", "COMPLIANCE_OFFICER"],
+        "_examples": ["SCADA / industrial control systems", "Air traffic control", "Power grid management", "Emergency response systems"]
+      }
+    }
+  },
+
+  "reporting_visibility": {
+    "_description": "Reporting-only roles receive a notification on every quorum event in their scope — regardless of the outcome, and regardless of whether they voted. They do NOT have voting rights in the default quorum. This gives CISO, Legal, and Compliance visibility into the full quorum picture without requiring their participation in every vote.",
+
+    "_how_it_works": "The quorum engine sends a summary DM or channel notification to all reporting-visibility IDs after every verdict is recorded. The notification includes the full audit row: package, version, trust score, verdict, voter detail, policy rule applied, and a link to the audit log row in Google Sheets.",
+
+    "always_notify": {
+      "_comment": "These IDs receive a summary of every quorum event across all applications and criticality classes. Suitable for CISO-level awareness.",
+      "members": [],
+      "_members_note": "Add CISO and Deputy CISO here for full-portfolio visibility."
+    },
+
+    "notify_on_elevated_and_above": {
+      "_comment": "These IDs receive summaries only for 'elevated' and 'mission_critical' application quorum events.",
+      "members": [],
+      "_members_note": "Add security architects and compliance officers here."
+    },
+
+    "notify_on_mission_critical_only": {
+      "_comment": "These IDs receive summaries only for 'mission_critical' and 'critical_infrastructure' quorum events.",
+      "members": [],
+      "_members_note": "Add Legal Counsel and Compliance Officer here."
+    },
+
+    "digest": {
+      "_description": "Weekly digest settings. A summary of all quorum events in the past 7 days is posted to the digest channel and optionally emailed.",
+      "enabled":          false,
+      "channel_id":       "",
+      "day_of_week":      "monday",
+      "hour_utc":         9,
+      "_channel_note": "Set to a dedicated #security-quorum-digest channel visible to security leadership."
+    }
+  },
+
+  "escalation_paths": {
+    "_description": "Defines how and when the quorum escalates from team to AppSec to Enterprise, and what happens when a deadline expires without resolution.",
+
+    "team_to_appsec": {
+      "trigger_conditions": [
+        "deadline_expired_without_majority",
+        "trust_score < 50",
+        "flag_behavior_change == true",
+        "flag_author_reputation == true",
+        "flag_provenance_activity == true",
+        "slsa_level == 0 AND dependency_class IN [auth, crypto, tls]"
+      ],
+      "_trigger_note": "When any condition matches, AppSec members are added to the active quorum pool and the deadline resets. The team's prior votes are retained — a team DENY that already reached majority stands without AppSec input.",
+      "deadline_extension_hours": 12,
+      "notify_team_on_escalation": true
+    },
+
+    "appsec_to_enterprise": {
+      "trigger_conditions": [
+        "appsec_deadline_expired_without_majority",
+        "trust_score < 20",
+        "flag_ai_hallucination == true",
+        "flag_typosquatting == true",
+        "license_copyleft == true",
+        "runtime_anomaly == true",
+        "app_criticality IN [mission_critical, critical_infrastructure]"
+      ],
+      "deadline_extension_hours": 8,
+      "notify_appsec_on_escalation": true,
+      "require_named_roles": ["CISO", "SECURITY_ARCH"]
+    },
+
+    "on_total_expiry": {
+      "_description": "If all escalation tiers expire without a majority, the outcome is DENIED (fail-closed). A mandatory incident report is created.",
+      "action":               "deny",
+      "create_incident":      true,
+      "incident_channel_id":  "",
+      "notify_roles":         ["CISO", "SECURITY_ARCH", "COMPLIANCE_OFFICER"]
     }
   },
 
   "_env_overrides": {
     "_note": "Any field can be overridden at runtime via environment variables without changing this file.",
-    "QUORUM_PLATFORM":       "discord | teams | slack",
-    "QUORUM_MEMBERS":        "Comma-separated platform-specific member IDs",
-    "QUORUM_THRESHOLD":      "Float 0.0–1.0",
-    "QUORUM_DEADLINE_HOURS": "Integer hours",
-    "VOTE_SERVER_PORT":      "Integer port for Teams/Slack vote callback server (default 3000)"
-  },
-
-  "namedRoles": {
-    "_note": "Maps policy.yaml role names to platform-specific member IDs. Used by policy-as-code for required member enforcement.",
-    "CISO":          "000000000000000000",
-    "SECURITY_ARCH": "000000000000000000",
-    "LEGAL":         "000000000000000000"
+    "QUORUM_PLATFORM":        "discord | teams | slack",
+    "QUORUM_MEMBERS":         "Comma-separated member IDs (overrides team tier members array)",
+    "QUORUM_THRESHOLD":       "Float 0.0–1.0",
+    "QUORUM_DEADLINE_HOURS":  "Integer hours",
+    "APP_CRITICALITY":        "standard | elevated | mission_critical | critical_infrastructure",
+    "VOTE_SERVER_PORT":       "Integer port for Teams/Slack callback server (default 3000)"
   }
 }
