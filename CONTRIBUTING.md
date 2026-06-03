@@ -1,47 +1,48 @@
-# Contributing to OSS Trust Framework
-
-All PRs must pass the framework's own nine-gate pipeline. We eat our own cooking.
+# Contributing
 
 ## Development setup
 
 ```bash
-git clone https://github.com/chrisgillham/oss-trust-framework
+git clone https://github.com/YOUR_ORG/oss-trust-framework
 cd oss-trust-framework
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env   # fill in your credentials
+cp .env.example .env   # fill in your values
 ```
 
 ## Running tests
 
 ```bash
-pytest tests/ -v --tb=short
+pytest tests/ -v --cov=src --cov-report=term-missing
 ```
 
-## Running the pipeline locally
+## Implementing stub gates
 
-```bash
-oss-trust check --package requests --version 2.32.3 --ecosystem pypi
-```
+Three gates are currently stubbed and need production implementations:
 
-## Code standards
+| Gate | File | What to implement |
+|---|---|---|
+| 2 — Signature | `src/signature/verifier.py` | cosign/Sigstore transparency log query; GPG fallback; timing check for zero-day lane |
+| 4 — SBOM delta | `src/sbom/differ.py` | syft or cdxgen invocation; CycloneDX JSON diff; lock file hash pinning |
+| 5 — Sandbox | `src/sandbox/runner.py` | gVisor or Firecracker container launch; stdin feed of install command; log parsing for alert conditions |
 
-- Python 3.11+, type-annotated, formatted with `ruff`
-- All new gates must implement the `async def evaluate(...) -> GateResult` interface
-- New gates must be registered in `src/pipeline/__init__.py`
-- Every gate must be fail-closed: exceptions → QUARANTINE, not APPROVED
+Each stub returns `(True, "stub message")` so the pipeline runs end-to-end in tests. Replace with real logic and add tests alongside.
 
-## Adding a gate
+## Adding a new ecosystem
 
-1. Create `src/your_gate/__init__.py` with a class implementing `evaluate()`
-2. Add config section to `config/pipeline.yaml`
-3. Import and wire into `Pipeline.run()` in `src/pipeline/__init__.py`
-4. Add tests to `tests/test_your_gate.py`
-5. Document in README.md under the gate reference table
+1. Add the registry API URL to `REGISTRY_APIS` in `src/age_check/checker.py`.
+2. Implement `_fetch_release_time` dispatch for the new ecosystem.
+3. Map the ecosystem name in `src/trust/aggregator.py::_fetch_deps_dev`.
+4. Add the ecosystem to the `Choice` validator in `src/pipeline/cli.py`.
+5. Add at least one test in `tests/test_age_check.py` for the new registry.
 
-## Submitting a PR
+## Pull request guidelines
 
-- PRs targeting `main` trigger `dep-trust-check.yml`
-- All actions must be pinned to commit SHAs (Gate 9 enforces this)
-- Include test coverage for any new gate logic
-- Update `config/pipeline.yaml` with new configuration keys
+- All PRs must pass the framework's own CI gate (`dep-trust-check.yml`).
+- New gates or bypass paths require security review from two named reviewers.
+- Zero-day lane changes require CISO sign-off.
+- No dependency may be added without a corresponding lockfile update.
+
+## Security disclosures
+
+Please report vulnerabilities to security@your-org.example.com rather than opening a public issue.

@@ -2,8 +2,17 @@
 Pipeline orchestrator — runs all gates in sequence and routes zero-day requests
 through the expedited lane.
 
-Standard flow:    Age → Sig → OOB Trust → SBOM → Sandbox → Rollout
-Zero-day flow:    CVE Validate → Quorum → Sig (+timing) → OOB Trust → SBOM → Sandbox → Immediate rollout
+Standard flow:
+  Age → Provenance Attestation → CI/CD Audit (2.5) → OOB Trust → SBOM → Sandbox → Rollout
+
+Zero-day flow:
+  CVE Validate → Quorum → Provenance (+timing) → CI/CD Audit → OOB Trust → SBOM → Sandbox → Immediate rollout
+
+Gate 2.5 (CI/CD Audit) — added to counter Miasma / Shai-Hulud class attacks:
+  2.5a  Orphan commit detection    — flags direct pushes bypassing PR review
+  2.5b  Workflow permission audit  — flags id-token:write without compensating controls
+  2.5c  PR provenance check        — verifies release backed by reviewed merged PR
+  2.5d  Publisher repo allowlist   — verifies provenance attestation points to canonical repo
 """
 
 from __future__ import annotations
@@ -14,6 +23,10 @@ from enum import Enum
 from typing import Any
 
 from oss_trust_framework.age_check.checker import AgeCheckResult, AgeDecision, check_release_age
+from oss_trust_framework.cicd_audit.orphan_commits import detect_orphan_commits
+from oss_trust_framework.cicd_audit.pr_provenance import verify_pr_provenance
+from oss_trust_framework.cicd_audit.workflow_permissions import audit_publishing_workflows
+from oss_trust_framework.signature.provenance import verify_provenance_attestation
 from oss_trust_framework.trust.aggregator import TrustCheckResult, aggregate_trust_score
 from oss_trust_framework.zeroday.validator import (
     CVEValidationResult,
@@ -81,7 +94,7 @@ class Pipeline:
         package: str,
         version: str,
         ecosystem: str,
-        github_repo: str | None = None,
+        github_repo: str | None = None,   # "owner/repo" — required for CI/CD audit gates
         github_token: str | None = None,
         zero_day_cve: str | None = None,
         requester: str | None = None,
@@ -89,6 +102,11 @@ class Pipeline:
         """
         Execute the full pipeline. If zero_day_cve is provided, routes through
         the expedited lane (age gate bypassed, all other gates mandatory).
+
+        github_repo should be supplied for any npm or PyPI package that has a
+        known GitHub source repo — it enables Gates 2.5a–c (orphan commits,
+        workflow permissions, PR provenance). Without it those gates are skipped
+        and a warning is emitted.
         """
         gates: list[GateResult] = []
 
@@ -132,11 +150,97 @@ class Pipeline:
         if age_result.decision == AgeDecision.HOLD:
             return self._finish(PipelineOutcome.HOLD, package, version, ecosystem, "standard", gates, age_result.message)
 
-        # Gate 2 — Signature (stubbed: implement with sigstore/gpg module)
-        sig_passed, sig_msg = await self._gate_signature(package, version, ecosystem)
-        gates.append(GateResult("signature", sig_passed, "pass" if sig_passed else "rejected", sig_msg))
-        if not sig_passed:
-            return self._finish(PipelineOutcome.BLOCKED, package, version, ecosystem, "standard", gates, sig_msg)
+        # Gate 2 — Provenance attestation + publisher repo allowlist
+        if github_token:
+            trusted_publishers = self.config.get("trusted_publishers", {}).get(ecosystem, {})
+            prov_result = await verify_provenance_attestation(
+                package=package,
+                version=version,
+                ecosystem=ecosystem,
+                trusted_publishers=trusted_publishers,
+            )
+            gates.append(GateResult(
+                "provenance_attestation",
+                prov_result.passed,
+                prov_result.risk,
+                prov_result,
+            ))
+            if not prov_result.passed and prov_result.risk == "CRITICAL":
+                return self._finish(
+                    PipelineOutcome.BLOCKED, package, version, ecosystem, "standard", gates,
+                    prov_result.message,
+                )
+            if not prov_result.passed:
+                return self._finish(
+                    PipelineOutcome.QUARANTINED, package, version, ecosystem, "standard", gates,
+                    prov_result.message,
+                )
+
+        # Gate 2.5a — Orphan commit detection (Miasma/Shai-Hulud direct-push indicator)
+        if github_repo and github_token:
+            owner, repo = github_repo.split("/", 1)
+            orphan_result = await detect_orphan_commits(
+                owner=owner, repo=repo, github_token=github_token
+            )
+            gates.append(GateResult(
+                "orphan_commits",
+                orphan_result.passed,
+                "pass" if orphan_result.passed else "blocked",
+                orphan_result,
+            ))
+            if not orphan_result.passed:
+                return self._finish(
+                    PipelineOutcome.BLOCKED, package, version, ecosystem, "standard", gates,
+                    orphan_result.message,
+                )
+
+            # Gate 2.5b — Workflow permission audit (id-token:write abuse vector)
+            wf_result = await audit_publishing_workflows(
+                owner=owner, repo=repo, github_token=github_token
+            )
+            gates.append(GateResult(
+                "workflow_permissions",
+                wf_result.passed,
+                "pass" if wf_result.passed else "quarantine",
+                wf_result,
+            ))
+            if not wf_result.passed:
+                return self._finish(
+                    PipelineOutcome.QUARANTINED, package, version, ecosystem, "standard", gates,
+                    wf_result.message,
+                )
+
+            # Gate 2.5c — PR provenance (release must trace to a reviewed merged PR)
+            pr_cfg = self.config.get("cicd_audit", {})
+            pr_result = await verify_pr_provenance(
+                owner=owner,
+                repo=repo,
+                version=version,
+                github_token=github_token,
+                min_reviewers=pr_cfg.get("min_pr_reviewers", 1),
+            )
+            gates.append(GateResult(
+                "pr_provenance",
+                pr_result.passed,
+                pr_result.risk,
+                pr_result,
+            ))
+            if not pr_result.passed and pr_result.risk == "CRITICAL":
+                return self._finish(
+                    PipelineOutcome.BLOCKED, package, version, ecosystem, "standard", gates,
+                    pr_result.message,
+                )
+            if not pr_result.passed:
+                return self._finish(
+                    PipelineOutcome.QUARANTINED, package, version, ecosystem, "standard", gates,
+                    pr_result.message,
+                )
+        else:
+            logger.warning(
+                "cicd_audit skipped — github_repo or github_token not provided "
+                "for package=%s version=%s. Gates 2.5a-c inactive.",
+                package, version,
+            )
 
         # Gate 3 — Out-of-band trust
         trust_result: TrustCheckResult = await aggregate_trust_score(
@@ -222,18 +326,39 @@ class Pipeline:
         ecosystem: str,
         cve_id: str,
         cve_published_at: str | None,
+        github_repo: str | None,
         github_token: str | None,
         gates: list[GateResult],
     ) -> PipelineResult:
         """Run the remaining gates after quorum approval."""
 
-        # Gate 2 — Signature + timing check
-        sig_passed, sig_msg = await self._gate_signature(
-            package, version, ecosystem, cve_published_at=cve_published_at
-        )
-        gates.append(GateResult("signature_timing", sig_passed, "pass" if sig_passed else "rejected", sig_msg))
-        if not sig_passed:
-            return self._finish(PipelineOutcome.BLOCKED, package, version, ecosystem, "zero_day", gates, sig_msg)
+        # Gate 2 — Provenance attestation with timing check
+        if github_token:
+            trusted_publishers = self.config.get("trusted_publishers", {}).get(ecosystem, {})
+            prov_result = await verify_provenance_attestation(
+                package=package,
+                version=version,
+                ecosystem=ecosystem,
+                trusted_publishers=trusted_publishers,
+                cve_published_at=cve_published_at,
+            )
+            gates.append(GateResult("provenance_timing", prov_result.passed, prov_result.risk, prov_result))
+            if not prov_result.passed:
+                return self._finish(PipelineOutcome.BLOCKED, package, version, ecosystem, "zero_day", gates, prov_result.message)
+
+        # Gate 2.5a-c — CI/CD audit (mandatory even in zero-day lane)
+        if github_repo and github_token:
+            owner, repo = github_repo.split("/", 1)
+
+            orphan_result = await detect_orphan_commits(owner=owner, repo=repo, github_token=github_token)
+            gates.append(GateResult("orphan_commits", orphan_result.passed, "pass" if orphan_result.passed else "blocked", orphan_result))
+            if not orphan_result.passed:
+                return self._finish(PipelineOutcome.BLOCKED, package, version, ecosystem, "zero_day", gates, orphan_result.message)
+
+            wf_result = await audit_publishing_workflows(owner=owner, repo=repo, github_token=github_token)
+            gates.append(GateResult("workflow_permissions", wf_result.passed, "pass" if wf_result.passed else "quarantine", wf_result))
+            if not wf_result.passed:
+                return self._finish(PipelineOutcome.QUARANTINED, package, version, ecosystem, "zero_day", gates, wf_result.message)
 
         # Gate 3 — OOB trust (CVE context noted — score may be lower during active incident)
         trust_result: TrustCheckResult = await aggregate_trust_score(
@@ -264,27 +389,18 @@ class Pipeline:
     # Stub gates (implement in respective modules)
     # ------------------------------------------------------------------
 
-    async def _gate_signature(
-        self,
-        package: str,
-        version: str,
-        ecosystem: str,
-        cve_published_at: str | None = None,
-    ) -> tuple[bool, str]:
-        """
-        Stub — implement in src/signature/verifier.py.
-        Should call cosign/sigstore and optionally check timing against cve_published_at.
-        """
-        logger.info("signature gate stub — package=%s version=%s", package, version)
-        return True, "Signature verification stub — implement src/signature/verifier.py"
-
     async def _gate_sbom(self, package: str, version: str, ecosystem: str) -> tuple[bool, str]:
         """Stub — implement in src/sbom/differ.py."""
         logger.info("sbom gate stub — package=%s version=%s", package, version)
         return True, "SBOM delta stub — implement src/sbom/differ.py"
 
     async def _gate_sandbox(self, package: str, version: str, ecosystem: str) -> tuple[bool, str]:
-        """Stub — implement in src/sandbox/runner.py."""
+        """
+        Stub — implement in src/sandbox/runner.py.
+        The runner should feed observed events to
+        src/sandbox/behavioral_patterns.evaluate_sandbox_events()
+        and fail on any CRITICAL finding (especially Miasma-class patterns).
+        """
         logger.info("sandbox gate stub — package=%s version=%s", package, version)
         return True, "Sandbox stub — implement src/sandbox/runner.py"
 

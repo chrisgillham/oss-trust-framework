@@ -1,0 +1,62 @@
+# Trusted publisher allowlist
+# Maps package names to their canonical GitHub source repository.
+# Used by Gate 2 (provenance attestation) to verify that a package was
+# published from the expected org repo — not a fork or compromised employee account.
+#
+# Format:
+#   ecosystem:
+#     "package-name": "owner/repo"
+#
+# Add entries for every high-criticality package in your dependency graph.
+# Packages not listed here will still pass provenance checks but won't get
+# the repo-match verification (attestation presence is still checked).
+#
+# Keep this file in source control and review changes via PRs — any edit
+# is a potential expansion of the trust surface.
+
+npm:
+  # Red Hat / Insights packages (Miasma targets)
+  "@redhat-cloud-services/frontend-components": "RedHatInsights/frontend-components"
+  "@redhat-cloud-services/frontend-components-utilities": "RedHatInsights/frontend-components"
+  "@redhat-cloud-services/frontend-components-notifications": "RedHatInsights/frontend-components"
+
+  # Common high-value npm packages — add more from your dependency graph
+  "express": "expressjs/express"
+  "lodash": "lodash/lodash"
+  "axios": "axios/axios"
+  "react": "facebook/react"
+  "typescript": "microsoft/TypeScript"
+  "webpack": "webpack/webpack"
+  "eslint": "eslint/eslint"
+  "jest": "jestjs/jest"
+  "next": "vercel/next.js"
+
+PyPI:
+  # Common high-value Python packages
+  "requests": "psf/requests"
+  "cryptography": "pyca/cryptography"
+  "boto3": "boto/boto3"
+  "django": "django/django"
+  "flask": "pallets/flask"
+  "fastapi": "tiangolo/fastapi"
+  "pydantic": "pydantic/pydantic"
+  "numpy": "numpy/numpy"
+  "pip": "pypa/pip"
+  "setuptools": "pypa/setuptools"
+
+Cargo:
+  # Common high-value Rust crates
+  "openssl": "sfackler/rust-openssl"
+  "tokio": "tokio-rs/tokio"
+  "serde": "serde-rs/serde"
+  "reqwest": "seanmonstar/reqwest"
+
+# Packages that should ALWAYS have a provenance attestation.
+# If attestation is missing for these, treat as BLOCK rather than QUARANTINE.
+require_attestation:
+  npm:
+    - "@redhat-cloud-services/frontend-components"
+    - "@redhat-cloud-services/frontend-components-utilities"
+  PyPI:
+    - "cryptography"
+    - "pip"

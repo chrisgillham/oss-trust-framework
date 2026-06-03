@@ -1,199 +1,161 @@
-# OSS Trust Framework — Pipeline Configuration
-# Copy to config/pipeline.yaml and customize for your organization.
-# All values can be overridden by environment variables with the prefix OTF_.
+# OSS Trust Framework — pipeline configuration
+# Copy this to config/pipeline.yaml and adjust for your environment.
 
 age_gate:
-  hard_block_hours: 24      # Releases younger than this: auto-blocked (no quorum)
-  hold_hours: 72            # Releases in 24–72 h window: hold pending human review
-  zero_day_exempt: true     # Zero-day CVE patches bypass age gate only
+  hard_block_hours: 24        # Releases younger than this are auto-blocked (no exceptions without CVE)
+  hold_hours: 72              # Releases in this window require human approval
+  allow_zero_day_bypass: true # Set false to disable the expedited lane entirely
+
+signature:
+  require_sigstore: true      # Require Sigstore transparency log entry
+  allow_gpg_fallback: true    # Accept GPG for ecosystems not yet on Sigstore
+  pinned_keys_path: "config/trusted_keys.asc"  # GPG public keys for known maintainers
+  rekor_url: "https://rekor.sigstore.dev"
 
 trust_scoring:
-  min_score: 60             # Packages below this score trigger QUARANTINE
-  require_zero_vulns: true  # Fail if any active CVE against this exact version
-  historical_modifier: true # Apply historical reputation from audit log
-
-slsa:
-  # Per-pattern minimum SLSA levels. Patterns are evaluated in order; first match wins.
-  critical_packages:
-    - pattern: "*auth*"
-      min_level: 3
-      class: auth
-    - pattern: "*jwt*"
-      min_level: 3
-      class: auth
-    - pattern: "*oauth*"
-      min_level: 3
-      class: auth
-    - pattern: "*crypto*"
-      min_level: 3
-      class: crypto
-    - pattern: "*tls*"
-      min_level: 3
-      class: tls
-    - pattern: "*ssl*"
-      min_level: 3
-      class: tls
-    - pattern: "*cert*"
-      min_level: 2
-      class: tls
-    - pattern: "*serializ*"
-      min_level: 2
-      class: serialization
-    - pattern: "*pars*"
-      min_level: 2
-      class: serialization
-  default_min_level: 1              # Applies to packages not matched above
-  on_missing_attestation: quarantine  # quarantine | hold | warn
-  on_below_minimum: quarantine
-
-reachability:
-  enabled: true
-  adapter: endor_labs             # endor_labs | snyk | contrast | none
-  cache_ttl_hours: 24             # Rebuild call graph if stale
-  on_unreachable: hold            # Downgrade QUARANTINE → HOLD when not reachable
-  on_adapter_failure: quarantine  # Fail behavior if adapter unavailable
-  adapter_config:
-    endor_labs:
-      api_key_env: ENDOR_LABS_API_KEY
-      project_uuid_env: ENDOR_LABS_PROJECT_UUID
-    snyk:
-      token_env: SNYK_TOKEN
-      org_id_env: SNYK_ORG_ID
-
-license:
-  allowlist:
-    - MIT
-    - Apache-2.0
-    - BSD-2-Clause
-    - BSD-3-Clause
-    - ISC
-    - 0BSD
-    - Unlicense
-    - CC0-1.0
-    - MPL-2.0          # Weak copyleft — file-level only; generally acceptable
-  warn_on_change: true           # Notify even if new license is on allowlist
-  block_copyleft: true           # GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-2.1, LGPL-3.0
-  block_commercial_restrict: true  # Commons Clause, SSPL, BSL, BUSL
-  on_unlicensed: block           # No SPDX identifier found → block
-  on_allowlist_violation: quarantine
+  min_scorecard_score: 6.0    # OpenSSF Scorecard minimum (0–10)
+  require_zero_active_vulns: true
+  sources:
+    openssf_scorecard: true
+    osv: true
+    deps_dev: true
+    github_advisories: true
+    npm_audit: true           # Only for npm ecosystem
+  # Composite score weights (must sum to 1.0)
+  weights:
+    scorecard: 0.40
+    osv_clean: 0.35
+    deps_metadata: 0.25
 
 sbom:
-  recursive: true                     # Evaluate full transitive tree
-  max_transitive_depth: 10            # Recursion limit
-  new_transitive_action: quarantine   # quarantine | hold | block
-  min_transitive_trust_score: 50      # Transitive packages below this fail the parent
-  hash_algorithm: sha256              # sha256 | sha512
-
-  # ── SBOM generation (side-effect of Gate 6) ─────────────────────────────
-  # Every pipeline run generates a complete, up-to-date CycloneDX 1.6 SBOM
-  # covering all direct and transitive dependencies in the resolved tree.
-  # This runs regardless of gate outcome — the SBOM is always current.
-  generate_sbom: true
-  sbom_formats: ["json"]             # json | xml | both
-  sbom_output_dir: "sbom"            # Output directory in repo root
-  commit_sbom: false                 # Auto-commit SBOM to repo (use in post-merge job only)
+  tool: syft                  # syft | cdxgen | trivy
+  format: cyclonedx-json
+  fail_on_new_transitive_deps: true
+  hash_algorithm: sha256
+  lockfile_required: true
 
 sandbox:
-  runtime: gvisor                # gvisor | firecracker | docker
-  network: none                  # none | loopback | restricted
-  timeout_seconds: 120
-  memory_limit_mb: 512
-  cpu_shares: 512
-  blocked_syscalls:              # Additional syscall denials beyond gVisor defaults
-    - ptrace
-    - process_vm_readv
-    - process_vm_writev
-
-ai_hallucination:
   enabled: true
-  hallucination_registry_url: https://api.oss-trust.dev/hallucinations
-  registry_cache_ttl_hours: 6
-  similarity_threshold: 0.85     # Name similarity to known packages triggers flag
-  new_package_age_days: 90       # Flag packages newer than this with no download history
-  min_download_count: 100        # Flag packages with fewer downloads than this
-  on_confirmed_hallucination: block
-  on_suspected: quarantine
+  runtime: gvisor             # gvisor | firecracker | docker (docker least preferred)
+  network: none               # none | host (none strongly recommended)
+  filesystem: readonly
+  timeout_seconds: 120
+  alert_on:
+    - dns_lookup_external
+    - outbound_connection
+    - subprocess_spawn
+    - env_var_enumeration
+    - write_outside_package_dir
+  # Miasma-class behavioral patterns — matched by src/sandbox/behavioral_patterns.py
+  behavioral_patterns:
+    enabled: true
+    block_on_critical: true   # CRITICAL pattern findings auto-block (no human override)
+    alert_on_high: true       # HIGH patterns quarantine and alert
+    miasma_patterns:          # Specific to Miasma/Shai-Hulud/TanStack attack class
+      cloud_metadata_access: block    # 169.254.169.254, metadata.google.internal
+      oidc_token_request: block       # token.actions.githubusercontent.com
+      registry_publish_during_install: block  # npm PUT / PyPI upload from install context
+      credential_file_read: block     # .aws/credentials, .config/gcloud, k8s service account
+      env_var_harvest: alert          # os.environ enumeration — also present in legitimate code
 
+# Gate 2.5 — CI/CD pipeline audit (Miasma/Shai-Hulud attack class)
 cicd_audit:
   enabled: true
-  require_sha_pinning: true           # Flag any action not pinned to a commit SHA
-  new_action_action: hold             # hold | quarantine for new third-party actions
-  approved_action_inventory: .github/approved-actions.json
-  flag_pull_request_target: true      # Flag pull_request_target with write perms
-  flag_script_injection: true         # Flag ${{ github.event.* }} in run: steps
 
-# ── Application criticality (consumed by policy.yaml tier rules) ────────────
-# Set APP_CRITICALITY env var in the workflow to override per-repo.
-# standard | elevated | mission_critical | critical_infrastructure
-app_criticality: standard
+  # 2.5a — Orphan commit detection
+  orphan_commits:
+    enabled: true
+    graph_walk_depth: 300     # Max commits to traverse from default branch tip
+    recent_tags_to_check: 5   # How many recent release tags to evaluate
+    action_on_orphan: block   # block | quarantine | alert
 
-# ── AppSec team member IDs (Tier 2 escalation) ───────────────────────────────
-# These supplement the team quorum when policy rules trigger AppSec escalation.
-# Set via APPSEC_LEAD_ID and APPSEC_MEMBER_IDS environment variables / secrets.
-appsec:
-  lead_env_var: APPSEC_LEAD_ID           # Single required AppSec approver
-  members_env_var: APPSEC_MEMBER_IDS     # Comma-separated optional additional AppSec members
+  # 2.5b — Workflow permission audit
+  workflow_permissions:
+    enabled: true
+    dangerous_permissions:
+      - "id-token: write"     # OIDC trusted publishing — the Miasma vector
+      - "contents: write"     # Direct repo write
+      - "packages: write"     # GitHub Packages publish
+    require_branch_protection: true
+    min_required_reviewers: 1
+    require_codeowners: true
+    action_on_finding: quarantine   # block | quarantine | alert
 
-# ── Reporting visibility (CISO / Legal / Compliance dashboard) ───────────────
-reporting:
-  # Post-verdict summary notification to senior stakeholders.
-  # Sent as a DM or channel post; does not affect the vote or its outcome.
-  enabled: true
-  digest_enabled: false          # Weekly portfolio-level digest
-  digest_day: monday
-  digest_hour_utc: 9
+  # 2.5c — PR provenance
+  pr_provenance:
+    enabled: true
+    min_pr_reviewers: 1
+    allow_known_release_bots: true   # release-please, changesets, etc.
+    action_on_direct_push: block     # A release with no associated PR is always blocked
+    action_on_insufficient_review: quarantine
+
+  # 2.5d — Publisher repo allowlist (provenance attestation source repo check)
+  publisher_allowlist:
+    config_file: "config/trusted_publishers.yaml"
+    action_on_repo_mismatch: block    # Attestation from wrong repo = always block
+    action_on_missing_attestation: quarantine  # No attestation = quarantine
+    # Packages listed under require_attestation in trusted_publishers.yaml
+    # are upgraded to block on missing attestation
 
 zero_day:
-  required_approvers: 2          # Minimum quorum for expedited lane
-  token_ttl_hours: 6             # Exception token expiry
-  max_exceptions_per_24h: 3      # Circuit breaker
-  require_mfa: true              # Approvers must have MFA on their GitHub account
-  require_ticket: true           # SIEM audit record must include ticket/issue link
-  cve_sources_required: 2        # CVE must appear in at least N of: NVD, OSV, GHSA
+  # Quorum
+  required_approvers: 2
+  named_approvers:            # Pre-register — cannot be changed at runtime via API
+    - id: approver_001
+      email: "ciso@example.com"
+    - id: approver_002
+      email: "secarch-lead@example.com"
+    - id: approver_003
+      email: "devsecops-lead@example.com"
+  mfa_required: true          # TOTP or hardware key — passwords alone rejected
+  requester_cannot_approve: true
 
-runtime:
-  monitoring_window_days: 30
-  siem_hec_endpoint: "${SIEM_HEC_ENDPOINT}"
-  siem_hec_token: "${SIEM_HEC_TOKEN}"
-  anomaly_webhook: "${ANOMALY_WEBHOOK_URL}"
-  elevated_alert_hours: 48       # Heightened monitoring window after zero-day deploy
-  rollback:
-    enabled: true
-    adapter: helm                 # helm | ansible | terraform | kubectl | custom
-    on_unanimous_revocation: auto_rollback
-    rollback_timeout_minutes: 15
-    dry_run: false
+  # Token lifecycle
+  token_ttl_hours: 6
+  re_approval_required_after_expiry: true
 
-public_registry:
-  enabled: false                 # Opt-in — set to true to participate
-  # Registry lives directly in the OSS Trust Framework GitHub repo.
-  # No external API or API key required — reads use the public raw content
-  # API (unauthenticated); writes open a GitHub Issue using GITHUB_TOKEN.
-  repo:   chrisgillham/oss-trust-framework
-  branch: main
-  contribute_verdicts: true
-  contribute_signal_flags: true
-  consume_community_scores: true
-  community_score_weight: 0.15   # Weight of community score in final trust modifier
-  # Set to 'test' to use the test-registry branch instead of main
-  # (prevents test data polluting the production registry during development)
-  registry_mode: production      # production | test
+  # CVE validation sources (require confirmation from N of these)
+  cve_sources:
+    nvd: true
+    osv: true
+    github_advisories: true
+  min_cve_source_confirmations: 2
 
-out_of_band_trust:
-  sources:
-    - name: openssf_scorecard
-      url: https://api.securityscorecards.dev
-      weight: 0.30
-    - name: osv
-      url: https://api.osv.dev
-      weight: 0.25
-    - name: deps_dev
-      url: https://api.deps.dev
-      weight: 0.20
-    - name: github_advisories
-      url: https://api.github.com/advisories
-      weight: 0.15
-    - name: socket
-      url: https://api.socket.dev/v0
-      api_key_env: SOCKET_API_KEY
-      weight: 0.10
+  # Timing check
+  reject_if_signed_before_cve_published_hours: 1  # Flag if signed >1h before CVE
+
+  # Rollout overrides
+  skip_canary: true           # Zero-day patches deploy to 100% immediately
+  elevated_alert_window_hours: 48
+
+  # Circuit breakers
+  circuit_breakers:
+    max_exceptions_per_24h: 3
+    same_requester_cooldown_hours: 48
+    suspend_on_post_deploy_cve_within_days: 30
+    monthly_retro_required: true
+
+rollout:
+  standard:
+    canary_percent: 5
+    canary_hold_hours: 24
+    full_deploy_after_hours: 72
+  zero_day:
+    canary_percent: 100       # Immediate full deploy
+    alert_window_hours: 48
+
+audit:
+  siem_enabled: true
+  siem_endpoint: "${SIEM_HEC_ENDPOINT}"
+  siem_token: "${SIEM_HEC_TOKEN}"
+  ticket_required_for_exceptions: true
+  ticket_system: "jira"       # jira | servicenow | linear
+  ticket_project: "${TICKET_PROJECT_KEY}"
+  post_incident_review_days: 3
+
+notifications:
+  slack_webhook: "${SLACK_WEBHOOK_URL}"
+  slack_channel: "#security-supply-chain"
+  email_on_block: true
+  email_recipients:
+    - "security@example.com"
