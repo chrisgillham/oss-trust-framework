@@ -44,7 +44,7 @@ dev = [
 oss-trust = "oss_trust_framework.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/oss_trust_framework"]
+packages = ["oss_trust_framework/oss_trust_framework"]
 
 [tool.ruff]
 line-length = 100
