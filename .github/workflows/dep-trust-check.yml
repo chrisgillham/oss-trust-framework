@@ -29,8 +29,6 @@ jobs:
       - name: Extract changed packages
         id: diff
         run: |
-          # Parse lock file diffs to extract new/updated package+version pairs
-          # Output format: JSON array of {package, version, ecosystem} objects
           python scripts/extract_dep_changes.py \
             --base ${{ github.event.pull_request.base.sha }} \
             --head ${{ github.event.pull_request.head.sha }} \
@@ -80,30 +78,34 @@ jobs:
           script: |
             const fs = require('fs');
             const result = JSON.parse(fs.readFileSync('trust-result.json', 'utf8'));
-            const icon = {
-              approved: '✅', blocked: '🚫', quarantined: '⚠️',
-              hold: '⏸️', pending_quorum: '🔐'
-            }[result.outcome] || '❓';
 
-            const gateRows = result.gates
-              .map(g => `| ${g.gate} | ${g.passed ? '✅' : '❌'} | ${g.decision} |`)
+            const icons = { approved: '✅', blocked: '🚫', quarantined: '⚠️', hold: '⏸️', pending_quorum: '🔐' };
+            const icon = icons[result.outcome] || '❓';
+
+            const gateRows = (result.gates || [])
+              .map(g => '| ' + g.gate + ' | ' + (g.passed ? '✅' : '❌') + ' | ' + g.decision + ' |')
               .join('\n');
 
-            const body = `## ${icon} OSS Trust Framework — \`${result.package}@${result.version}\`
+            let footer = '';
+            if (result.outcome === 'blocked' || result.outcome === 'quarantined') {
+              footer = '> **Action required:** This dependency update has been blocked by the trust pipeline. See gate details above.';
+            } else if (result.outcome === 'hold') {
+              footer = '> **Approval required:** This release is within the 24-72 h age hold window. A security reviewer must approve before merge.';
+            }
 
-**Outcome:** \`${result.outcome.toUpperCase()}\`
-**Lane:** ${result.lane}
-**Message:** ${result.message}
-
-| Gate | Passed | Decision |
-|---|---|---|
-${gateRows}
-
-${result.outcome === 'blocked' || result.outcome === 'quarantined'
-  ? '> **Action required:** This dependency update has been blocked by the trust pipeline. See gate details above.'
-  : result.outcome === 'hold'
-  ? '> **Approval required:** This release is within the 24–72 h age hold window. A security reviewer must approve before merge.'
-  : ''}`;
+            const body = [
+              '## ' + icon + ' OSS Trust Framework — `' + result.package + '@' + result.version + '`',
+              '',
+              '**Outcome:** `' + result.outcome.toUpperCase() + '`',
+              '**Lane:** ' + result.lane,
+              '**Message:** ' + result.message,
+              '',
+              '| Gate | Passed | Decision |',
+              '|---|---|---|',
+              gateRows,
+              '',
+              footer
+            ].join('\n');
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
