@@ -560,7 +560,7 @@ footer {
         <div class="stat-label">Validation gates</div>
       </div>
       <div>
-        <div class="stat-num">18</div>
+        <div class="stat-num">34</div>
         <div class="stat-label">Behavioral patterns</div>
       </div>
       <div>
@@ -598,6 +598,12 @@ footer {
         <div class="incident-name">Bitwarden CLI Compromise</div>
         <div class="incident-desc">The Bitwarden CLI was targeted in an ongoing Checkmarx supply chain campaign using the same OIDC trusted publishing vector — demonstrating this is a systematic, repeatable attack playbook, not a one-time incident.</div>
         <div class="incident-meta">Checkmarx campaign · trusted publisher abuse</div>
+      </div>
+      <div class="incident-card">
+        <div class="incident-tag">2026 · npm · CRITICAL</div>
+        <div class="incident-name">IronWorm (asteroiddao)</div>
+        <div class="incident-desc">36 npm packages infected with a Rust-built infostealer hiding behind an eBPF kernel rootkit. Harvests 86 environment variables including OpenAI, Anthropic, and AWS credentials, SSH keys, Exodus wallet seed phrases, and Vault tokens. C2 over Tor with temp.sh fallback. Self-propagates via npm OIDC Trusted Publishing. Identified by JFrog Security Research June 2026.</div>
+        <div class="incident-meta">Shai-Hulud variant · eBPF rootkit · Tor C2 · AI API key theft · Rust ELF preinstall hook</div>
       </div>
       <div class="incident-card">
         <div class="incident-tag">2024 · tarball · CRITICAL</div>

@@ -1,62 +1,112 @@
 # Trusted publisher allowlist
 # Maps package names to their canonical GitHub source repository.
+#
 # Used by Gate 2 (provenance attestation) to verify that a package was
-# published from the expected org repo — not a fork or compromised employee account.
+# published from the expected org repo — not a fork or compromised employee
+# account. Any provenance attestation pointing to a different repo is an
+# immediate BLOCK.
 #
 # Format:
 #   ecosystem:
 #     "package-name": "owner/repo"
 #
-# Add entries for every high-criticality package in your dependency graph.
-# Packages not listed here will still pass provenance checks but won't get
-# the repo-match verification (attestation presence is still checked).
+# How to add a new package:
+#   pip:  curl -s https://pypi.org/pypi/<pkg>/json | python3 -c "import sys,json; d=json.load(sys.stdin); print((d['info'].get('project_urls') or {}))"
+#   npm:  npm view <pkg> repository.url
 #
-# Keep this file in source control and review changes via PRs — any edit
-# is a potential expansion of the trust surface.
+# Priority order for what to add:
+#   1. Packages with network access (httpx, requests, urllib3)
+#   2. Packages that handle crypto or auth (cryptography, pyotp)
+#   3. Packages that read/write files or env vars (python-dotenv, pyyaml)
+#   4. All direct dependencies in pyproject.toml / package.json
+#   5. High-value transitive dependencies
+#
+# Last verified: 2026-06-03
 
-npm:
-  # Red Hat / Insights packages (Miasma targets)
-  "@redhat-cloud-services/frontend-components": "RedHatInsights/frontend-components"
-  "@redhat-cloud-services/frontend-components-utilities": "RedHatInsights/frontend-components"
-  "@redhat-cloud-services/frontend-components-notifications": "RedHatInsights/frontend-components"
-
-  # Common high-value npm packages — add more from your dependency graph
-  "express": "expressjs/express"
-  "lodash": "lodash/lodash"
-  "axios": "axios/axios"
-  "react": "facebook/react"
-  "typescript": "microsoft/TypeScript"
-  "webpack": "webpack/webpack"
-  "eslint": "eslint/eslint"
-  "jest": "jestjs/jest"
-  "next": "vercel/next.js"
-
+# ---------------------------------------------------------------------------
+# OSS Trust Framework direct dependencies (pyproject.toml)
+# ---------------------------------------------------------------------------
 PyPI:
-  # Common high-value Python packages
-  "requests": "psf/requests"
-  "cryptography": "pyca/cryptography"
-  "boto3": "boto/boto3"
-  "django": "django/django"
-  "flask": "pallets/flask"
-  "fastapi": "tiangolo/fastapi"
-  "pydantic": "pydantic/pydantic"
-  "numpy": "numpy/numpy"
-  "pip": "pypa/pip"
-  "setuptools": "pypa/setuptools"
 
+  # --- Network / HTTP ---
+  "httpx": "encode/httpx"               # Async HTTP client — network access
+
+  # --- Cryptography / Auth ---
+  "cryptography": "pyca/cryptography"   # Core crypto primitives — CRITICAL
+  "pyotp": "pyotp/pyotp"               # TOTP/MFA — used in zero-day quorum
+
+  # --- Config / Environment ---
+  "python-dotenv": "theskumar/python-dotenv"  # Reads .env files — env var access
+  "pyyaml": "yaml/pyyaml"              # Parses YAML config — file access
+
+  # --- CLI / Output ---
+  "click": "pallets/click"             # CLI framework
+  "rich": "Textualize/rich"            # Terminal output
+
+  # --- Data validation ---
+  "pydantic": "pydantic/pydantic"      # Data models and validation
+
+  # --- Dev / Test dependencies ---
+  "pytest": "pytest-dev/pytest"
+  "pytest-asyncio": "pytest-dev/pytest-asyncio"
+  "pytest-cov": "pytest-dev/pytest-cov"
+  "respx": "lundberg/respx"            # HTTP mocking for tests
+  "ruff": "astral-sh/ruff"             # Linter
+  "mypy": "python/mypy"                # Type checker
+
+# ---------------------------------------------------------------------------
+# Common high-value PyPI packages — add from your own dependency graph
+# ---------------------------------------------------------------------------
+
+  # Uncomment and add as needed:
+  # "requests": "psf/requests"
+  # "boto3": "boto/boto3"
+  # "google-cloud-storage": "googleapis/python-storage"
+  # "azure-identity": "Azure/azure-sdk-for-python"
+  # "django": "django/django"
+  # "flask": "pallets/flask"
+  # "fastapi": "tiangolo/fastapi"
+  # "sqlalchemy": "sqlalchemy/sqlalchemy"
+  # "paramiko": "paramiko/paramiko"
+  # "ansible": "ansible/ansible"
+
+# ---------------------------------------------------------------------------
+# npm packages — populate from your package.json if applicable
+# ---------------------------------------------------------------------------
+npm:
+
+  # Common high-value packages — uncomment what applies to your project:
+  # "express": "expressjs/express"
+  # "axios": "axios/axios"
+  # "lodash": "lodash/lodash"
+  # "react": "facebook/react"
+  # "typescript": "microsoft/TypeScript"
+  # "webpack": "webpack/webpack"
+  # "eslint": "eslint/eslint"
+  # "jest": "jestjs/jest"
+  # "next": "vercel/next.js"
+
+  # Red Hat / Insights packages (Miasma attack targets — add if you use these):
+  # "@redhat-cloud-services/frontend-components": "RedHatInsights/frontend-components"
+  # "@redhat-cloud-services/frontend-components-utilities": "RedHatInsights/frontend-components"
+
+# ---------------------------------------------------------------------------
+# Cargo (Rust) — populate if applicable
+# ---------------------------------------------------------------------------
 Cargo:
-  # Common high-value Rust crates
-  "openssl": "sfackler/rust-openssl"
-  "tokio": "tokio-rs/tokio"
-  "serde": "serde-rs/serde"
-  "reqwest": "seanmonstar/reqwest"
+  # "openssl": "sfackler/rust-openssl"
+  # "tokio": "tokio-rs/tokio"
+  # "reqwest": "seanmonstar/reqwest"
+  # "serde": "serde-rs/serde"
 
-# Packages that should ALWAYS have a provenance attestation.
-# If attestation is missing for these, treat as BLOCK rather than QUARANTINE.
+# ---------------------------------------------------------------------------
+# Packages that MUST have a provenance attestation.
+# Missing attestation = BLOCK (not just quarantine).
+# Use for your most security-critical dependencies.
+# ---------------------------------------------------------------------------
 require_attestation:
-  npm:
-    - "@redhat-cloud-services/frontend-components"
-    - "@redhat-cloud-services/frontend-components-utilities"
   PyPI:
-    - "cryptography"
-    - "pip"
+    - "cryptography"    # Any compromise here is catastrophic
+    - "pyotp"           # Handles MFA tokens
+    - "httpx"           # All outbound network calls go through this
+  npm: []

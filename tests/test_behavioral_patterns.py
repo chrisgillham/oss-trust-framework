@@ -93,3 +93,125 @@ def test_empty_events_no_findings():
     assert evaluate_sandbox_events([]) == []
     assert not has_critical_findings([])
     assert "No behavioral indicators" in summarise_findings([])
+
+
+# ---------------------------------------------------------------------------
+# IronWorm-specific tests (JFrog, 2026-06-03)
+# ---------------------------------------------------------------------------
+
+def test_tor_onion_c2_detected():
+    """IronWorm beacons to a Tor hidden service — .onion destination must fire."""
+    events = [{"type": "network", "value": "http://abc123def456.onion/api/agent"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-001" for f in findings)
+    assert has_critical_findings(findings)
+    assert any(f.get("ironworm_specific") for f in findings)
+
+
+def test_tor_socks_port_detected():
+    """IronWorm may route through local Tor SOCKS proxy on port 9050."""
+    events = [{"type": "network", "value": "127.0.0.1:9050"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-001b" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_tempsh_fallback_exfil_detected():
+    """IronWorm uses temp.sh as a fallback C2 channel."""
+    events = [{"type": "network", "value": "https://temp.sh/upload"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-001c" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_ebpf_rootkit_syscall_detected():
+    """IronWorm loads an eBPF kernel rootkit — bpf() syscall from install context."""
+    events = [{"type": "process", "value": "BPF_PROG_LOAD fd=3"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-002" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_tools_setup_binary_detected():
+    """IronWorm drops its Rust ELF payload as tools/setup."""
+    events = [{"type": "process", "value": "./tools/setup --collect"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-002b" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_openai_api_key_harvest_detected():
+    """IronWorm harvests AI API keys including OpenAI and Anthropic."""
+    events = [{"type": "env_access", "value": "OPENAI_API_KEY=sk-abc123"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-003" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_anthropic_api_key_harvest_detected():
+    events = [{"type": "env_access", "value": "ANTHROPIC_API_KEY=sk-ant-abc123"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-003" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_vault_token_harvest_detected():
+    """IronWorm targets HashiCorp Vault tokens."""
+    events = [{"type": "env_access", "value": "VAULT_TOKEN=s.abc123def"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-004b" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_exodus_wallet_detected():
+    """IronWorm steals Exodus cryptocurrency wallet seed phrases."""
+    events = [{"type": "file_read", "value": "/root/.config/Exodus/exodus.wallet"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] in ("IRONWORM-005", "IRONWORM-005b") for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_npmrc_credential_theft_detected():
+    """IronWorm reads .npmrc to steal npm auth tokens for self-propagation."""
+    events = [{"type": "file_read", "value": "/root/.npmrc"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-006" for f in findings)
+
+
+def test_workflow_hijack_detected():
+    """IronWorm overwrites GitHub Actions workflows to exfiltrate secrets."""
+    events = [{"type": "file_read", "value": ".github/workflows/release.yml"}]
+    findings = evaluate_sandbox_events(events)
+    assert any(f["pattern_id"] == "IRONWORM-007" for f in findings)
+    assert has_critical_findings(findings)
+
+
+def test_get_attack_family_identifies_ironworm():
+    from oss_trust_framework.sandbox.behavioral_patterns import get_attack_family
+    events = [
+        {"type": "network", "value": "abc.onion/api/agent"},
+        {"type": "env_access", "value": "OPENAI_API_KEY=sk-123"},
+    ]
+    findings = evaluate_sandbox_events(events)
+    families = get_attack_family(findings)
+    assert "IronWorm" in families
+
+
+def test_get_attack_family_identifies_both():
+    """An event set firing both Miasma and IronWorm patterns."""
+    from oss_trust_framework.sandbox.behavioral_patterns import get_attack_family
+    events = [
+        {"type": "network", "value": "169.254.169.254"},         # MIASMA-001
+        {"type": "network", "value": "abc123.onion/api/agent"},  # IRONWORM-001
+    ]
+    findings = evaluate_sandbox_events(events)
+    families = get_attack_family(findings)
+    assert "Miasma/Shai-Hulud" in families
+    assert "IronWorm" in families
+
+
+def test_summarise_includes_attack_family():
+    events = [{"type": "network", "value": "abc.onion/c2"}]
+    findings = evaluate_sandbox_events(events)
+    summary = summarise_findings(findings)
+    assert "IronWorm" in summary
