@@ -1,0 +1,95 @@
+name: OSS Trust Demo - CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "requirements.txt"
+      - "pyproject.toml"
+
+jobs:
+  trust-check:
+    name: Trust validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OSS Trust Framework from GitHub
+        run: |
+          pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+          oss-trust --version
+
+      - name: Validate requests 2.33.0
+        run: |
+          oss-trust check \
+            --package requests \
+            --version 2.33.0 \
+            --ecosystem PyPI \
+            --github-repo psf/requests \
+            --output json | tee trust-requests.json
+          echo "Outcome: $(jq -r .outcome trust-requests.json)"
+
+      - name: Validate rich 13.9.4
+        run: |
+          oss-trust check \
+            --package rich \
+            --version 13.9.4 \
+            --ecosystem PyPI \
+            --github-repo Textualize/rich \
+            --output json | tee trust-rich.json
+          echo "Outcome: $(jq -r .outcome trust-rich.json)"
+
+      - name: Upload trust reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-reports
+          path: trust-*.json
+          retention-days: 30
+
+  run-tests:
+    name: Run demo tests
+    runs-on: ubuntu-latest
+    needs: trust-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OSS Trust Framework from GitHub
+        run: pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio pyyaml
+
+      - name: Run test suite
+        run: pytest tests/ -v
+
+  run-demo:
+    name: Run all scenarios
+    runs-on: ubuntu-latest
+    needs: trust-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OSS Trust Framework from GitHub
+        run: pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+
+      - name: Install demo dependencies
+        run: pip install rich click pyyaml
+
+      - name: Run all demo scenarios
+        run: python src/demo.py --scenario all
