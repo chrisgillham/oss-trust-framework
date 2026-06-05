@@ -13,7 +13,7 @@ A multi-gate security framework that validates open source dependency updates be
 | Attack | Date | Packages | Vector | Status |
 |---|---|---|---|---|
 | **Miasma / Red Hat Insights** | 2026 | 32 npm | Compromised employee account + OIDC trusted publishing | Active campaign |
-| **IronWorm** | 2026-06-03 | 36 npm | Rust ELF preinstall hook + eBPF rootkit + Tor C2 | **Identified 2 days ago** |
+| **IronWorm** | 2026-06-03 | 36 npm | Rust ELF preinstall hook + eBPF rootkit + Tor C2 | Active campaign |
 | **TanStack** | 2026 | 170 npm | Same OIDC trusted publishing pattern | Active campaign |
 | **Bitwarden CLI** | 2026 | npm | Checkmarx campaign — OIDC trusted publishing | Active campaign |
 | **XZ Utils** | 2024 | tarball | 2-year social engineering → build script backdoor | CVSS 10.0 |
@@ -54,6 +54,9 @@ Every gate decision, zero-day exception, and approval event emits a structured S
 ### Drop-in CI/CD integration
 The GitHub Actions workflow fires automatically on any lock file change, comments gate results on PRs, and fails the build on block or quarantine. No per-repo configuration after initial setup.
 
+### 131-test suite with no external dependencies
+All tests run offline with mocked API calls. Gate 1 threshold boundaries, all 34 named behavioral patterns, full zero-day quorum lifecycle, cross-gate integration scenarios, and regression tests for known CVE-affected package versions.
+
 ---
 
 ## Architecture
@@ -88,6 +91,8 @@ Dependency update request
 ┌──────────────────────┐   Score < threshold ──► QUARANTINE
 │  Gate 3: Out-of-Band │   Active CVE ──► QUARANTINE
 │  Trust Aggregation   │   (OpenSSF · OSV · deps.dev · GHSA)
+│                      │   Note: individual source failures degrade score,
+│                      │   they do not fail the gate outright (resilient)
 └──────────┬───────────┘
            │
            ▼
@@ -140,49 +145,156 @@ Immediate full-fleet deploy + 48 h elevated alert window
 
 ---
 
+## Installation
+
+```bash
+# From source (not yet published to PyPI)
+git clone https://github.com/chrisgillham/oss-trust-framework
+cd oss-trust-framework
+
+# Windows
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+
+# Mac/Linux
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Verify
+oss-trust --version
+```
+
+**Note:** If you see `ModuleNotFoundError: No module named 'oss_trust_framework'` after install, ensure `pyproject.toml` contains:
+```toml
+[tool.hatch.build.targets.wheel]
+packages = ["oss_trust_framework"]
+```
+And that `oss_trust_framework/cli.py` exists containing:
+```python
+from oss_trust_framework.pipeline.cli import main
+```
+
+---
+
 ## Quickstart
 
 ```bash
-pip install oss-trust-framework
-
 # Run the full pipeline against a single package
 oss-trust check \
   --package requests \
-  --version 2.32.3 \
+  --version 2.33.0 \
   --ecosystem PyPI \
   --github-repo psf/requests
+
+# Check all packages in requirements.txt + framework_deps.txt
+# (with interactive allowlist management for unlisted packages)
+python check_all.py
 
 # Request a zero-day expedited exception
 oss-trust zeroday request \
   --cve CVE-2024-XXXXX \
   --package requests \
-  --version 2.32.4 \
+  --version 2.33.1 \
   --requester security@yourorg.com
 
-# Approve a pending zero-day request (run by each named approver)
+# Approve (run by each named approver separately)
 oss-trust zeroday approve \
   --request-id abc123def456 \
   --approver-id approver_001 \
   --mfa-token 123456
 
-# Check request status
+# Check status
 oss-trust zeroday status --request-id abc123def456
 ```
 
 ---
 
-## Installation
+## Configuration
+
+### Core pipeline settings (`config/pipeline.yaml`)
+
+```yaml
+age_gate:
+  hard_block_hours: 24      # < 24 h: auto-blocked regardless of source
+  hold_hours: 72            # 24-72 h: human approval required
+
+trust_scoring:
+  min_scorecard_score: 6.0  # OpenSSF minimum (0-10)
+  require_zero_active_vulns: true
+  # Note: if a source is unavailable, the aggregator uses a neutral
+  # default score for that source rather than failing the gate.
+  # This is intentional resilient behaviour.
+
+cicd_audit:
+  orphan_commits:
+    enabled: true
+    action_on_orphan: block
+  workflow_permissions:
+    enabled: true
+    action_on_finding: quarantine
+  pr_provenance:
+    min_pr_reviewers: 1
+    action_on_direct_push: block
+
+sandbox:
+  runtime: gvisor
+  network: none
+  behavioral_patterns:
+    block_on_critical: true
+
+zero_day:
+  required_approvers: 2
+  token_ttl_hours: 6
+  circuit_breakers:
+    max_exceptions_per_24h: 3
+```
+
+### Trusted publisher allowlist (`config/trusted_publishers.yaml`)
+
+Maps package names to their canonical GitHub source repo. A provenance attestation pointing to any other repository is treated as a CRITICAL finding and blocked.
+
+```yaml
+PyPI:
+  "requests": "psf/requests"
+  "cryptography": "pyca/cryptography"
+  "httpx": "encode/httpx"
+
+require_attestation:        # Missing attestation = BLOCK (not just quarantine)
+  PyPI:
+    - "cryptography"
+    - "httpx"
+```
+
+Run `python check_all.py` in your project to interactively populate this file from your actual dependency graph. For each unlisted package, the tool auto-looks up the canonical repo from PyPI and offers to add it with Option 1 (allowlist only) or Option 2 (allowlist + require_attestation).
+
+---
+
+## Running Tests
 
 ```bash
-# From PyPI
-pip install oss-trust-framework
+# Full suite — 131 tests, all offline (no network required)
+pytest
 
-# From source
-git clone https://github.com/chrisgillham/oss-trust-framework
-cd oss-trust-framework
-pip install -e ".[dev]"
-cp .env.example .env
+# By gate
+pytest tests/test_gate1_age.py        # 11 tests — age threshold boundaries
+pytest tests/test_gate3_trust.py      # 6 tests  — OOB trust aggregation
+pytest tests/test_gate5_behavioral.py # 50 tests — all 34 named patterns
+pytest tests/test_zeroday_lane.py     # 23 tests — full quorum lifecycle
+pytest tests/test_integration.py      # 10 tests — cross-gate scenarios
+pytest tests/test_check_all.py        # 13 tests — dependency check utilities
+
+# With coverage
+pytest --cov=oss_trust_framework --cov-report=term-missing
 ```
+
+### Test design notes
+
+- All external API calls (PyPI, OSV, OpenSSF, GitHub) are mocked — tests run fully offline
+- Gate 5 tests cover every named pattern individually — 18 Miasma + 16 IronWorm
+- Zero-day tests cover the full lifecycle: create → approve (×2) → quorum → post-approval state
+- Integration tests include regression cases for `requests 2.32.3` (2 CVEs) vs `2.33.0` (clean)
+- Gate 3 source failure is tested: individual source unavailability degrades score gracefully rather than failing the gate
 
 ---
 
@@ -229,7 +341,7 @@ A Rust ELF binary (`tools/setup`, UPX-packed with overwritten magic bytes) is dr
 | No merged PR for release | **2.5c** | No PR → DIRECT_PUSH → BLOCK |
 | Rust ELF binary dropped via `preinstall` hook | **5** | IRONWORM-002b: `tools/setup` process event → BLOCK |
 | eBPF kernel rootkit load | **5** | IRONWORM-002: `BPF_PROG_LOAD` syscall → BLOCK (gVisor boundary prevents escape) |
-| AI API key harvest (OpenAI, Anthropic, etc.) | **5** | IRONWORM-003: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` env access → BLOCK |
+| AI API key harvest (OpenAI, Anthropic, Gemini, Cohere) | **5** | IRONWORM-003: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` env access → BLOCK |
 | AWS / GCP / Azure / Vault credential theft | **5** | CRED-003/004 + IRONWORM-004: credential file reads → BLOCK |
 | SSH key theft | **5** | CRED-005: `/root/.ssh` file access → HIGH |
 | Exodus cryptocurrency wallet seed phrase theft | **5** | IRONWORM-005/005b: `~/.config/Exodus` file access → BLOCK |
@@ -239,7 +351,7 @@ A Rust ELF binary (`tools/setup`, UPX-packed with overwritten magic bytes) is dr
 | GitHub Actions workflow overwrite | **5** | IRONWORM-007: write to `.github/workflows/` → BLOCK |
 | Vault token theft | **5** | IRONWORM-004b: `VAULT_TOKEN` env access → BLOCK |
 
-### Why this is structurally hard to defeat
+### Structural defense
 
 Bypassing the framework requires compromising all of the following simultaneously:
 
@@ -260,13 +372,13 @@ Bypassing the framework requires compromising all of the following simultaneousl
 | Any exception-deployed package receives a new CVE within 30 days | Lane suspended; retrospective triggered |
 | Monthly retrospective finds process violations | Lane suspended until remediation confirmed |
 
-Exception tokens expire after 6 hours. Re-approval required after expiry — no extensions.
+Exception tokens expire after 6 hours. Re-approval required — no extensions.
 
 ---
 
 ## Out-of-Band Trust Sources (Gate 3)
 
-All sources queried independently of the package repository. A compromised repo cannot influence these results.
+All sources queried independently of the package repository. A compromised repo cannot influence these results. Individual source failures degrade the composite score but do not fail the gate outright — this is intentional resilient behaviour that prevents a single unavailable API from blocking all dependency updates.
 
 | Source | API endpoint | What it provides |
 |---|---|---|
@@ -280,7 +392,7 @@ All sources queried independently of the package repository. A compromised repo 
 
 ## Behavioral Patterns (Gate 5)
 
-34 named patterns across two confirmed attack families. Matched by event type — encryption, obfuscation, and unique-per-infection payloads are irrelevant.
+34 named patterns across two confirmed attack families. Matched by event type — encryption, obfuscation, and unique-per-infection payloads are irrelevant to behavioral matching.
 
 ### Miasma / Shai-Hulud patterns (18)
 
@@ -294,12 +406,17 @@ All sources queried independently of the package repository. A compromised repo 
 | MIASMA-011 | OIDC token | HIGH | Google Cloud OIDC token endpoint |
 | MIASMA-012 | OIDC token | HIGH | Azure AD OIDC token endpoint |
 | CRED-001 | Credential file | CRITICAL | Kubernetes service account token |
-| CRED-002–005 | Credential file | HIGH | GCP / AWS / Azure / SSH credential files |
+| CRED-002 | Credential file | HIGH | GCP application default credentials |
+| CRED-003 | Credential file | HIGH | AWS credentials file |
+| CRED-004 | Credential file | HIGH | Azure CLI credentials |
+| CRED-005 | Credential file | HIGH | SSH private key directory |
 | PUBLISH-001 | Registry publish | CRITICAL | npm PUT during package install |
 | PUBLISH-002 | Registry publish | CRITICAL | PyPI upload during package install |
 | ENV-001 | Env var harvest | HIGH | Full environment variable enumeration |
 | ENV-002 | Env var harvest | CRITICAL | `OIDC_PACKAGES`, `GITHUB_TOKEN`, `CI_TOKEN` access |
-| PROC-001–003 | Process injection | HIGH/CRITICAL | Base64 exec, curl-to-shell, eval/exec obfuscation |
+| PROC-001 | Process injection | HIGH | Base64-encoded command execution via shell |
+| PROC-002 | Process injection | CRITICAL | curl piped to shell from install script |
+| PROC-003 | Process injection | HIGH | Python eval/exec with encoded payload |
 
 ### IronWorm patterns (16) — added 2026-06-05
 
@@ -311,10 +428,11 @@ All sources queried independently of the package repository. A compromised repo 
 | IRONWORM-002 | Kernel exploit | CRITICAL | eBPF `BPF_PROG_LOAD` syscall from install context |
 | IRONWORM-002b | Kernel exploit | CRITICAL | `tools/setup` Rust ELF binary execution |
 | IRONWORM-002c | Kernel exploit | CRITICAL | Rust ELF dropped to `/tmp/tools/` |
-| IRONWORM-003 | Env var harvest | CRITICAL | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` etc. |
+| IRONWORM-003 | Env var harvest | CRITICAL | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `COHERE_API_KEY` |
 | IRONWORM-004 | Credential file | CRITICAL | HashiCorp Vault token file |
 | IRONWORM-004b | Env var harvest | CRITICAL | `VAULT_TOKEN`, `VAULT_ADDR` env access |
-| IRONWORM-005/b | Crypto wallet | CRITICAL | Exodus wallet data directory (seed phrase theft) |
+| IRONWORM-005 | Crypto wallet | CRITICAL | Exodus wallet `/home/.config/Exodus` |
+| IRONWORM-005b | Crypto wallet | CRITICAL | Exodus wallet `/root/.config/Exodus` |
 | IRONWORM-005c | Crypto wallet | HIGH | Atomic wallet directory |
 | IRONWORM-006 | Credential file | HIGH | `.npmrc` auth token file read |
 | IRONWORM-006b | Env var harvest | CRITICAL | `NPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` env access |
@@ -342,14 +460,18 @@ oss-trust-framework/
 │   │   └── behavioral_patterns.py  # Gate 5 — 34 patterns: 18 Miasma + 16 IronWorm
 │   ├── zeroday/
 │   │   └── validator.py            # CVE machine-validation + quorum approval manager
+│   ├── config.py                   # Config loader and quorum manager factory
 │   └── pipeline/
 │       ├── orchestrator.py         # Full pipeline runner; standard and zero-day routing
 │       └── cli.py                  # oss-trust check / zeroday request/approve/status
 ├── tests/
-│   ├── test_age_check.py           # Gate 1: registry API mocks, threshold boundary cases
-│   ├── test_cicd_audit.py          # Gate 2.5: orphan, workflow, PR provenance
-│   ├── test_behavioral_patterns.py # Gate 5: Miasma + IronWorm patterns + clean baseline
-│   └── test_zeroday_quorum.py      # ZD lane: expiry, duplicate vote, MFA, self-approval
+│   ├── conftest.py                 # Shared fixtures (quorum_manager, attack event chains)
+│   ├── test_gate1_age.py           # 11 tests — age threshold boundaries, custom thresholds
+│   ├── test_gate3_trust.py         # 6 tests  — OOB trust aggregation, source resilience
+│   ├── test_gate5_behavioral.py    # 50 tests — all 34 patterns individually + utilities
+│   ├── test_zeroday_lane.py        # 23 tests — full quorum lifecycle, MFA, expiry
+│   ├── test_integration.py         # 10 tests — cross-gate scenarios, regression tests
+│   └── test_scenarios.py           # 18 tests — original demo scenarios
 ├── config/
 │   ├── pipeline.yaml               # All thresholds, gate config, circuit breakers
 │   └── trusted_publishers.yaml     # Publisher repo allowlist
@@ -374,9 +496,9 @@ Three gates are implemented as stubs — good first issues:
 
 | Gate | File | What to implement |
 |---|---|---|
-| 4 — SBOM delta | `src/sbom/differ.py` | syft/cdxgen invocation; CycloneDX JSON diff; lock file hash pinning |
-| 5 — Sandbox runner | `src/sandbox/runner.py` | gVisor container launch; install execution; event feed to `behavioral_patterns.evaluate_sandbox_events()` |
-| 2 — GPG fallback | `src/signature/gpg.py` | GPG verification for ecosystems not yet on Sigstore |
+| 4 — SBOM delta | `oss_trust_framework/sbom/differ.py` | syft/cdxgen invocation; CycloneDX JSON diff; lock file hash pinning |
+| 5 — Sandbox runner | `oss_trust_framework/sandbox/runner.py` | gVisor container launch; install execution; event feed to `behavioral_patterns.evaluate_sandbox_events()` |
+| 2 — GPG fallback | `oss_trust_framework/signature/gpg.py` | GPG verification for ecosystems not yet on Sigstore |
 
 All PRs must pass the framework's own CI gate. Zero-day lane changes require CISO sign-off.
 
