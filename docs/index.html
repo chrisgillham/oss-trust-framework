@@ -561,7 +561,7 @@ footer {
       </div>
       <div>
         <div class="stat-num">34</div>
-        <div class="stat-label">Behavioral patterns</div>
+        <div class="stat-label">Behavioral patterns (18 Miasma · 16 IronWorm)</div>
       </div>
       <div>
         <div class="stat-num">6h</div>
@@ -579,7 +579,7 @@ footer {
 <section class="incident-section" id="incidents">
   <div class="container">
     <div class="section-label">Real-world attacks this prevents</div>
-    <div class="section-title" style="margin-bottom:2rem;">These attacks happened.<br>Last year. To trusted projects.</div>
+    <div class="section-title" style="margin-bottom:2rem;">These attacks happened.<br>They are actively happening now.<br>To trusted projects.</div>
     <div class="incidents-grid">
       <div class="incident-card">
         <div class="incident-tag">2026 · npm · CRITICAL</div>
@@ -1255,12 +1255,16 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
 <section class="miasma-section" id="miasma">
   <div class="container">
     <div class="section-label">Attack coverage</div>
-    <div class="section-title">The Miasma / Shai-Hulud attack.<br>Step by step. Gate by gate.</div>
-    <p class="section-sub">The 2026 Red Hat npm compromise used a reproducible attack playbook seen in three separate incidents. Here is exactly how each step is intercepted.</p>
+    <div class="section-title">Miasma, Shai-Hulud, IronWorm.<br>Step by step. Gate by gate.</div>
+    <p class="section-sub">Three active attack campaigns using two distinct but related playbooks. Here is exactly how each step is intercepted by the framework.</p>
 
-    <div style="background:var(--surface);border:1px solid rgba(255,77,109,0.2);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:2rem;border-left:4px solid var(--red);">
-      <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.5rem;color:var(--red);">Attack summary</div>
-      <p style="color:var(--text2);font-size:0.9rem;line-height:1.65;">A compromised Red Hat employee GitHub account was used to push orphan commits to two RedHatInsights repositories. A CI/CD workflow with <code>id-token: write</code> permission requested a GitHub OIDC token and used it to authenticate with npm's trusted publishing endpoint — publishing backdoored versions of 32 packages. The packages carried valid Sigstore signatures. The payload (Miasma v2) collected GCP and Azure cloud identities and generated a unique encrypted payload per infection to defeat hash-based detection.</p>
+    <div style="background:var(--surface);border:1px solid rgba(255,77,109,0.2);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:1.25rem;border-left:4px solid var(--red);">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.5rem;color:var(--red);">Miasma / Shai-Hulud — Red Hat Insights (2026)</div>
+      <p style="color:var(--text2);font-size:0.9rem;line-height:1.65;">A compromised Red Hat employee GitHub account pushed orphan commits to two RedHatInsights repositories. A CI/CD workflow with <code>id-token: write</code> permission requested a GitHub OIDC token and authenticated directly with npm's trusted publishing endpoint — publishing backdoored versions of 32 packages. Packages carried valid Sigstore signatures. The payload (Miasma v2) collected GCP and Azure cloud identities and generated a unique encrypted payload per infection to defeat hash-based IOCs. Same fundamental pattern also used against TanStack (170 packages) and Bitwarden CLI.</p>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(245,166,35,0.25);border-radius:var(--radius-lg);padding:1.5rem;margin-bottom:2rem;border-left:4px solid var(--amber);">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.5rem;color:var(--amber);">IronWorm — asteroiddao / Arweave ecosystem (identified JFrog, 2026-06-03)</div>
+      <p style="color:var(--text2);font-size:0.9rem;line-height:1.65;">A Rust-built infostealer distributed via 36 malicious npm packages published from the compromised <code>asteroiddao</code> account. A ~976 KB Rust ELF binary is dropped via a <code>preinstall</code> hook (UPX-packed with overwritten magic bytes). The payload hides behind an <strong>eBPF kernel rootkit</strong> for process and socket hiding, harvests <strong>86 environment variables</strong> and 20+ credential file paths — including OpenAI, Anthropic, and AWS credentials, SSH keys, Vault tokens, Kubernetes secrets, and Exodus cryptocurrency wallet seed phrases — then beacons to a <strong>Tor hidden service</strong> with temp.sh as fallback exfil. Self-propagates by using stolen npm OIDC credentials to publish trojanized versions of victim-owned packages. Backdates commits to obscure forensic timeline. Identified as an evolved variant of the Shai-Hulud worm family.</p>
     </div>
 
     <div class="miasma-table-wrap">
@@ -1334,6 +1338,69 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
             <td class="td-mechanism">ENV-002: env_access event matching OIDC_PACKAGES pattern → CRITICAL</td>
             <td><span class="td-verdict pill-block">BLOCK</span></td>
           </tr>
+          <tr style="border-top:2px solid rgba(245,166,35,0.3);">
+            <td colspan="4" style="background:rgba(245,166,35,0.05);padding:0.6rem 1.25rem;font-family:'Syne',sans-serif;font-weight:700;font-size:0.8rem;color:var(--amber);">IronWorm — asteroiddao / Arweave ecosystem (JFrog, 2026-06-03)</td>
+          </tr>
+          <tr>
+            <td class="td-attack">Rust ELF binary dropped via npm preinstall hook (tools/setup, UPX-packed)</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-002b: process event matching tools/setup execution → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">eBPF kernel rootkit loaded for process/socket hiding</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-002: bpf() / BPF_PROG_LOAD syscall from install context → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Harvests OpenAI, Anthropic, AWS, and other API keys from environment</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-003: env_access matching OPENAI_API_KEY, ANTHROPIC_API_KEY etc. → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Beacons to Tor hidden service C2 (.onion)</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-001: network event to .onion destination → CRITICAL (also blocked by --network=none)</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Fallback exfil via temp.sh</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-001c: network event to temp.sh → CRITICAL (also blocked by --network=none)</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Steals Exodus cryptocurrency wallet seed phrases</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-005/005b: file_read event on ~/.config/Exodus path → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Reads .npmrc and npm tokens for self-propagation via OIDC Trusted Publishing</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-006/006b: .npmrc file read + NPM_AUTH_TOKEN env access → HIGH/CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Overwrites GitHub Actions workflows to exfiltrate repo secrets</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-007: file write to .github/workflows/ from install context → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Backdated commits to obscure forensic timeline</td>
+            <td class="td-gate">2.5a</td>
+            <td class="td-mechanism">Orphan commit BFS walk checks graph reachability — timestamps are irrelevant to graph position</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
+          <tr>
+            <td class="td-attack">Steals Vault tokens and Kubernetes secrets</td>
+            <td class="td-gate">5</td>
+            <td class="td-mechanism">IRONWORM-004/004b: VAULT_TOKEN env var + /root/.vault-token file access → CRITICAL</td>
+            <td><span class="td-verdict pill-block">BLOCK</span></td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -1342,7 +1409,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
       <div style="color:var(--green);font-size:1.2rem;flex-shrink:0;">🛡</div>
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.3rem;">Structural defense — not just better tooling</div>
-        <p style="font-size:0.85rem;color:var(--text2);">Bypassing this framework requires compromising NVD + OSV + GHSA (for the zero-day lane), OpenSSF Scorecard + deps.dev (Gate 3), the npm/PyPI provenance attestation system (Gate 2), and the gVisor sandbox runtime (Gate 5) — simultaneously. No single compromised account, repository, or CI/CD pipeline is sufficient.</p>
+        <p style="font-size:0.85rem;color:var(--text2);">Bypassing this framework requires compromising NVD + OSV + GHSA (for the zero-day lane), OpenSSF Scorecard + deps.dev (Gate 3), the npm/PyPI provenance attestation system (Gate 2), and the gVisor sandbox runtime (Gate 5) — simultaneously. No single compromised account, repository, CI/CD pipeline, or rootkit is sufficient. IronWorm's eBPF rootkit cannot escape the gVisor kernel boundary — behavioral patterns fire before the rootkit achieves persistence.</p>
       </div>
     </div>
   </div>
