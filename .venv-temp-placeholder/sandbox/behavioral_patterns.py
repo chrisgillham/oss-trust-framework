@@ -290,3 +290,14 @@ def summarise_findings(findings: list[dict]) -> str:
     return f"Behavioral findings: {', '.join(parts)}. " + "; ".join(
         f["description"] for f in findings[:3]
     ) + ("..." if len(findings) > 3 else "")
+
+
+def get_attack_family(findings: list[dict]) -> list[str]:
+    """Return which attack families are indicated by the findings."""
+    families = set()
+    for f in findings:
+        if f.get("miasma_specific"):
+            families.add("Miasma/Shai-Hulud")
+        if f.get("ironworm_specific"):
+            families.add("IronWorm")
+    return sorted(families)
