@@ -59,6 +59,35 @@ All tests run offline with mocked API calls. Gate 1 threshold boundaries, all 34
 
 ---
 
+## OWASP Top 10 CI/CD Security Risks Coverage
+
+The framework directly addresses all 10 of the [OWASP Top 10 CI/CD Security Risks](https://owasp.org/www-project-top-10-ci-cd-security-risks/). The mapping below shows which gates implement each control.
+
+| Risk | OWASP description | Framework coverage | Gates |
+|---|---|---|---|
+| **CICD-SEC-1** | Insufficient Flow Control Mechanisms | The age gate enforces a mandatory hold on all new releases regardless of source. The zero-day lane requires machine-verified CVE + 2-of-3 MFA quorum before bypassing it. No single individual can accelerate a dependency update unilaterally. | Gate 1, ZD lane |
+| **CICD-SEC-2** | Inadequate Identity and Access Management | Gate 2.5b audits `id-token: write` and other dangerous permissions in publishing workflows. Gate 2.5c enforces minimum reviewer counts on releases. The zero-day quorum enforces separation of duties — the requester cannot approve their own exception. | Gates 2.5b, 2.5c, ZD lane |
+| **CICD-SEC-3** | Dependency Chain Abuse | The core mission of the framework. Gates 1–5 collectively validate every dependency update before ingestion — age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. This is exactly the attack class the framework was built to stop. | Gates 1–5 |
+| **CICD-SEC-4** | Poisoned Pipeline Execution (PPE) | Gate 2.5a detects orphan commits — direct pushes bypassing the merge queue. Gate 2.5c confirms every release traces to a reviewed merged PR. Gate 2.5b flags workflows with dangerous permissions exploitable via PPE. The Miasma / Shai-Hulud attack class is a direct real-world example of PPE. | Gates 2.5a, 2.5b, 2.5c |
+| **CICD-SEC-5** | Insufficient PBAC (Pipeline-Based Access Controls) | Gate 2.5b enforces Pipeline-Based Access Controls by auditing `id-token: write`, `contents: write`, and `packages: write` permissions in publishing workflows, and requiring compensating controls (branch protection, CODEOWNERS, environment protection rules) when these permissions exist. | Gate 2.5b |
+| **CICD-SEC-6** | Insufficient Credential Hygiene | Gate 5 detects credential harvesting at install time: AWS/GCP/Azure credential file reads (CRED-001 to CRED-005), Vault token access (IRONWORM-004), npm auth token theft (IRONWORM-006), AI API key harvest (IRONWORM-003), and SSH key reads (CRED-005). Gate 2 detects packages published using stolen OIDC tokens by verifying `sourceRepositoryURI` in provenance attestations. | Gates 2, 5 |
+| **CICD-SEC-7** | Insecure System Configuration | Gate 2.5b checks for insecure CI/CD configuration: `id-token: write` without environment protection rules, missing branch protection, and absent CODEOWNERS. The framework's own `dep-trust-check.yml` workflow is itself subject to the pipeline. | Gate 2.5b |
+| **CICD-SEC-8** | Ungoverned Usage of 3rd Party Services | Gate 3 queries OpenSSF Scorecard, OSV, deps.dev, and GitHub Advisories to independently evaluate every third-party dependency. Gate 4 SBOM delta catches unexpected transitive dependencies introduced by third-party packages. `trusted_publishers.yaml` governs which external publisher repos are trusted per package. | Gates 3, 4 |
+| **CICD-SEC-9** | Improper Artifact Integrity Validation | Gate 2 verifies Sigstore / GPG cryptographic signatures and cross-checks `sourceRepositoryURI` in provenance attestations against the trusted publishers allowlist. Gate 4 pins exact hashes in lock files and detects integrity changes. Gate 2.5a confirms the tagged commit is reachable from the default branch, preventing detached / orphaned artifact publishing. | Gates 2, 2.5a, 4 |
+| **CICD-SEC-10** | Insufficient Logging and Visibility | Every gate decision emits a structured SIEM event. Zero-day exceptions require ticket linkage before deployment. Quorum approval events — including MFA failures and duplicate vote attempts — are emitted immediately. Monthly retrospectives are enforced by circuit breaker. The framework produces a complete, non-repudiable audit trail for every dependency decision. | All gates, ZD lane |
+
+### Coverage summary
+
+| Coverage level | Risks |
+|---|---|
+| Fully addressed — multiple independent gates | CICD-SEC-3, CICD-SEC-4, CICD-SEC-9 |
+| Fully addressed — dedicated gate controls | CICD-SEC-1, CICD-SEC-2, CICD-SEC-5, CICD-SEC-6, CICD-SEC-7, CICD-SEC-8, CICD-SEC-10 |
+| Not addressed | None — all 10 have direct gate implementations |
+
+The framework provides complete coverage across all 10 OWASP CI/CD Security Risks. CICD-SEC-3 (Dependency Chain Abuse) is addressed by the entire gate pipeline — it is the primary threat the framework was designed to defeat. CICD-SEC-4 (Poisoned Pipeline Execution) maps directly to Gate 2.5 (CI/CD Pipeline Audit), which was added specifically in response to the Miasma / Shai-Hulud attack class — a real-world PPE campaign active in 2026.
+
+---
+
 ## Architecture
 
 ```

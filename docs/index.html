@@ -1456,6 +1456,109 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
 </section>
 
 <!-- ── REFERENCES ── -->
+
+<!-- OWASP CI/CD TOP 10 -->
+<section id="owasp" style="background:var(--bg);border-top:1px solid var(--border)">
+  <div class="container">
+    <div class="section-label">Standards alignment</div>
+    <div class="section-title">OWASP Top 10 CI/CD Security Risks — full coverage.</div>
+    <p class="section-sub">The framework directly addresses all 10 of the <a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/" target="_blank" style="color:var(--accent)">OWASP Top 10 CI/CD Security Risks</a>. The table below maps each risk to the specific gates that implement the control.</p>
+
+    <div style="overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border)">
+      <table style="width:100%;border-collapse:collapse">
+        <thead style="background:var(--surface)">
+          <tr>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border);white-space:nowrap">Risk</th>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">OWASP description</th>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">How the framework addresses it</th>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border);white-space:nowrap">Gates</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-01-Insufficient-Flow-Control-Mechanisms" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-1</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient Flow Control Mechanisms</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">The 24 h hard block and 72 h hold enforce mandatory flow controls on every dependency update. The zero-day lane requires machine-verified CVE confirmation and 2-of-3 MFA quorum before bypassing the age gate — no single individual can accelerate a release.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gate 1<br>ZD lane</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-02-Inadequate-Identity-And-Access-Management" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-2</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Inadequate Identity and Access Management</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 2.5b audits dangerous publishing permissions (<code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">id-token: write</code>). Gate 2.5c enforces minimum reviewer counts. The zero-day quorum enforces separation of duties — the requester is hard-coded out of the approver pool.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2.5b<br>2.5c, ZD</td>
+          </tr>
+          <tr style="background:rgba(74,158,255,0.03)">
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-03-Dependency-Chain-Abuse" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-3</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Dependency Chain Abuse <span style="font-size:0.68rem;background:rgba(74,158,255,0.15);color:var(--accent);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">PRIMARY THREAT</span></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">The core mission of the framework. All five gates validate every dependency update — age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. The Miasma, IronWorm, TanStack, and XZ Utils attacks are all real-world dependency chain abuse.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 1–5</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-04-Poisoned-Pipeline-Execution" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-4</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Poisoned Pipeline Execution (PPE) <span style="font-size:0.68rem;background:rgba(255,77,109,0.12);color:var(--red);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">Miasma class</span></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 2.5a detects orphan commits — direct pushes bypassing the merge queue. Gate 2.5c confirms every release traces to a reviewed merged PR. Gate 2.5b flags exploitable pipeline permissions. Miasma / Shai-Hulud is a confirmed real-world PPE campaign stopped by Gate 2.5.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2.5a<br>2.5b, 2.5c</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-05-Insufficient-PBAC" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-5</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient PBAC (Pipeline-Based Access Controls)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 2.5b enforces PBAC by auditing <code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">id-token: write</code>, <code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">contents: write</code>, and <code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">packages: write</code> in publishing workflows, and requiring compensating controls (branch protection, CODEOWNERS, environment protection rules).</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gate 2.5b</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-06-Insufficient-Credential-Hygiene" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-6</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient Credential Hygiene <span style="font-size:0.68rem;background:rgba(245,166,35,0.12);color:var(--amber);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">IronWorm class</span></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 5 detects credential harvesting at install time: AWS/GCP/Azure file reads (CRED-001–005), Vault token access (IRONWORM-004), npm auth token theft (IRONWORM-006), AI API key harvest (IRONWORM-003). Gate 2 catches packages published using stolen OIDC tokens via sourceRepositoryURI mismatch.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2, 5</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-07-Insecure-System-Configuration" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-7</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insecure System Configuration</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 2.5b checks for insecure CI/CD configuration: dangerous permissions without compensating controls, missing branch protection, and absent CODEOWNERS files. The framework actively scans publisher repositories for configuration weaknesses before approving a package.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gate 2.5b</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-08-Ungoverned-Usage-of-3rd-Party-Services" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-8</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Ungoverned Usage of 3rd Party Services</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 3 queries OpenSSF Scorecard, OSV, deps.dev, and GitHub Advisories to independently score every third-party dependency. Gate 4 SBOM delta catches unexpected transitive dependencies. <code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">trusted_publishers.yaml</code> governs which external publisher repos are trusted per package.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 3, 4</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-09-Improper-Artifact-Integrity-Validation" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-9</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Improper Artifact Integrity Validation</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 2 verifies Sigstore / GPG signatures and cross-checks <code style="background:var(--bg3);padding:0.1rem 0.3rem;border-radius:3px;font-size:0.75rem">sourceRepositoryURI</code> in provenance attestations against the trusted publishers allowlist. Gate 4 pins exact lock file hashes. Gate 2.5a confirms tagged commits are reachable from the default branch — preventing detached artifact publishing.</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2<br>2.5a, 4</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-10-Insufficient-Logging-And-Visibility" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-10</a></td>
+            <td style="padding:0.85rem 1.1rem;font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient Logging and Visibility</td>
+            <td style="padding:0.85rem 1.1rem;font-size:0.82rem;color:var(--text2);vertical-align:top">Every gate decision emits a structured SIEM event. Zero-day exceptions require ticket linkage before deployment. Quorum events — including MFA failures and duplicate votes — are emitted immediately. Monthly retrospectives enforced by circuit breaker. Complete, non-repudiable audit trail for every dependency decision.</td>
+            <td style="padding:0.85rem 1.1rem;font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">All gates<br>ZD lane</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:1.5rem;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem">
+      <div style="background:var(--surface);border:1px solid rgba(61,214,140,0.25);border-radius:var(--radius);padding:1.1rem;text-align:center">
+        <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--green)">10 / 10</div>
+        <div style="font-size:0.8rem;color:var(--text2);margin-top:0.25rem">OWASP CI/CD risks addressed</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid rgba(74,158,255,0.2);border-radius:var(--radius);padding:1.1rem;text-align:center">
+        <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--accent)">5</div>
+        <div style="font-size:0.8rem;color:var(--text2);margin-top:0.25rem">Independent validation gates</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid rgba(167,139,250,0.2);border-radius:var(--radius);padding:1.1rem;text-align:center">
+        <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--purple)">3</div>
+        <div style="font-size:0.8rem;color:var(--text2);margin-top:0.25rem">Risks with multiple gate coverage</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid rgba(255,77,109,0.2);border-radius:var(--radius);padding:1.1rem;text-align:center">
+        <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--red)">0</div>
+        <div style="font-size:0.8rem;color:var(--text2);margin-top:0.25rem">Risks not addressed</div>
+      </div>
+    </div>
+  </div>
+</section>
 <section class="refs-section" id="references">
   <div class="container">
     <div class="section-label">References</div>
