@@ -988,32 +988,290 @@ footer {
 <section class="install-section" id="install">
   <div class="container">
     <div class="section-label">Installation</div>
-    <div class="section-title">Up in three steps.</div>
+    <div class="section-title">Two paths. Pick yours.</div>
 
-    <div class="install-steps">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:2.5rem">
+      <div style="background:var(--surface);border:2px solid var(--accent);border-radius:var(--radius-lg);padding:1.75rem;position:relative">
+        <div style="position:absolute;top:-1px;left:1.5rem;background:var(--accent);color:#000;font-family:'Syne',sans-serif;font-weight:700;font-size:0.72rem;padding:0.2rem 0.75rem;border-radius:0 0 6px 6px;letter-spacing:0.05em">MOST COMMON</div>
+        <div style="font-size:1.5rem;margin-bottom:0.75rem">🚀</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;margin-bottom:0.5rem">Use in your project</div>
+        <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">You want to protect an existing repo from supply chain attacks. Install the framework and add a GitHub Actions workflow — no cloning, no editable installs.</p>
+        <div style="display:flex;flex-direction:column;gap:0.4rem">
+          <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> pip install or GitHub source</div>
+          <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> Drop-in GitHub Actions workflow</div>
+          <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> oss-trust check from CLI</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.75rem">
+        <div style="font-size:1.5rem;margin-bottom:0.75rem">🔧</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;margin-bottom:0.5rem">Develop the framework</div>
+        <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">You want to add behavioral patterns, implement stub gates, or contribute to the codebase. Clone the repo and install in editable mode.</p>
+        <div style="display:flex;flex-direction:column;gap:0.4rem">
+          <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> git clone + pip install -e</div>
+          <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> Full dev dependencies</div>
+          <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> 131-test suite</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border-bottom:2px solid var(--accent);margin-bottom:2rem;padding-bottom:0.5rem">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:var(--accent)">🚀 Use in your project</div>
+      <div style="font-size:0.85rem;color:var(--text2);margin-top:0.25rem">Protecting an existing repo — no cloning required</div>
+    </div>
+
+    <div class="install-steps" style="margin-bottom:2rem">
       <div class="step-card">
         <div class="step-num">01</div>
         <div class="step-title">Install the framework</div>
-        <div class="step-desc">Python 3.11+ required. Install from PyPI or clone from source.</div>
+        <div class="step-desc">From PyPI (once published) or GitHub source. Python 3.11+ required.</div>
       </div>
       <div class="step-card">
         <div class="step-num">02</div>
-        <div class="step-title">Configure your publisher allowlist</div>
+        <div class="step-title">Configure your allowlist</div>
         <div class="step-desc">Map your critical packages to their canonical GitHub repos in <code>trusted_publishers.yaml</code>.</div>
       </div>
       <div class="step-card">
         <div class="step-num">03</div>
-        <div class="step-title">Wire into CI/CD</div>
-        <div class="step-desc">Add the GitHub Actions workflow — it fires automatically on any lock file change.</div>
+        <div class="step-title">Add the CI/CD workflow</div>
+        <div class="step-desc">Drop the GitHub Actions workflow into your repo — it fires automatically on any lock file change.</div>
       </div>
     </div>
 
     <div class="install-tabs">
-      <button class="tab-btn active" onclick="showTab('pip')">pip</button>
-      <button class="tab-btn" onclick="showTab('source')">from source</button>
+      <button class="tab-btn active" onclick="showTab('pip')">pip install</button>
+      <button class="tab-btn" onclick="showTab('github-source')">GitHub source</button>
+      <button class="tab-btn" onclick="showTab('actions')">GitHub Actions</button>
       <button class="tab-btn" onclick="showTab('check')">oss-trust check</button>
       <button class="tab-btn" onclick="showTab('zeroday')">zero-day lane</button>
-      <button class="tab-btn" onclick="showTab('actions')">GitHub Actions</button>
+    </div>
+
+    <div id="pip" class="tab-panel active">
+      <div style="background:var(--amber-soft);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--amber)">Note:</strong> Not yet on PyPI — use the GitHub source tab below while the PyPI release is pending.
+      </div>
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Install from PyPI (pending — check back soon)</span>
+pip install oss-trust-framework
+
+<span class="tok-cm"># Verify</span>
+oss-trust --version
+<span class="tok-cm"># oss-trust, version 0.2.0</span>
+
+<span class="tok-cm"># Check a package immediately</span>
+oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
+      </div>
+    </div>
+
+    <div id="github-source" class="tab-panel">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — install from GitHub (works right now)</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Install directly from GitHub into your existing project venv</span>
+pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+
+<span class="tok-cm"># Verify</span>
+oss-trust --version
+<span class="tok-cm"># oss-trust, version 0.2.0</span>
+
+<span class="tok-cm"># Check a package</span>
+oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
+      </div>
+      <div style="margin-top:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--text)">Do NOT clone the framework repo</strong> just to use it in your project. The git clone workflow is for contributors only — see the Develop section below.
+      </div>
+    </div>
+
+    <div id="actions" class="tab-panel">
+      <div style="font-size:0.88rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">Drop this file into <code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px">.github/workflows/</code> in <strong>your own repo</strong>. It runs automatically on every PR that touches a lock file — no local install needed for your developers.</div>
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">your-repo/.github/workflows/dep-trust-check.yml</div></div>
+        <div class="code-body"><pre><span class="tok-kw">name</span>: <span class="tok-str">Dependency trust validation</span>
+<span class="tok-kw">on</span>:
+  <span class="tok-kw">pull_request</span>:
+    <span class="tok-kw">paths</span>:
+      - <span class="tok-str">"**/requirements*.txt"</span>
+      - <span class="tok-str">"**/package-lock.json"</span>
+      - <span class="tok-str">"**/Cargo.lock"</span>
+      - <span class="tok-str">"**/go.sum"</span>
+      - <span class="tok-str">"**/pyproject.toml"</span>
+
+<span class="tok-kw">jobs</span>:
+  <span class="tok-kw">trust-check</span>:
+    <span class="tok-kw">runs-on</span>: <span class="tok-str">ubuntu-latest</span>
+    <span class="tok-kw">steps</span>:
+      - <span class="tok-kw">uses</span>: <span class="tok-str">actions/checkout@v4</span>
+      - <span class="tok-kw">uses</span>: <span class="tok-str">actions/setup-python@v5</span>
+        <span class="tok-kw">with</span>:
+          <span class="tok-kw">python-version</span>: <span class="tok-str">"3.12"</span>
+
+      - <span class="tok-kw">name</span>: Install OSS Trust Framework
+        <span class="tok-kw">run</span>: |
+          pip install <span class="tok-str">"git+https://github.com/chrisgillham/oss-trust-framework.git"</span>
+
+      - <span class="tok-kw">name</span>: Validate dependency updates
+        <span class="tok-kw">env</span>:
+          <span class="tok-kw">GITHUB_TOKEN</span>: <span class="tok-str">${{ secrets.GITHUB_TOKEN }}</span>
+        <span class="tok-kw">run</span>: |
+          <span class="tok-cm"># Replace with your package name, version, and ecosystem</span>
+          oss-trust check             --package <span class="tok-str">"requests"</span>             --version <span class="tok-str">"2.33.0"</span>             --ecosystem <span class="tok-str">"PyPI"</span>             --github-repo <span class="tok-str">"psf/requests"</span>             --output json | tee trust-result.json
+          <span class="tok-cm"># Exit code 1 on BLOCKED or QUARANTINE — fails the PR</span>
+          python -c <span class="tok-str">"import json,sys; r=json.load(open('trust-result.json')); sys.exit(0 if r['outcome']=='approved' else 1)"</span></pre></div>
+      </div>
+    </div>
+
+    <div id="check" class="tab-panel">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — validate a package</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Full pipeline check — standard lane</span>
+oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests
+
+<span class="tok-cm"># Gate             Passed   Decision</span>
+<span class="tok-cm"># age              yes      pass (1732h old)</span>
+<span class="tok-cm"># oob_trust        yes      PASS (score: 93/100, vulns: 0)</span>
+
+<span class="tok-cm"># JSON output for scripting</span>
+oss-trust check --package requests --version 2.33.0   --ecosystem PyPI --output json | jq .outcome
+<span class="tok-cm"># "approved"</span>
+
+<span class="tok-cm"># Check a package with active CVEs — expect QUARANTINE</span>
+oss-trust check --package Pillow --version 9.0.0 --ecosystem PyPI
+<span class="tok-cm"># Outcome: QUARANTINE (14 active CVEs found)</span></pre></div>
+      </div>
+    </div>
+
+    <div id="zeroday" class="tab-panel">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — zero-day expedited lane</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Step 1: Request an expedited exception</span>
+<span class="tok-cm"># CVE is machine-verified against NVD + OSV + GHSA before proceeding</span>
+oss-trust zeroday request   --cve CVE-2024-XXXXX   --package requests   --version 2.33.1   --requester security@yourorg.com
+
+<span class="tok-cm"># CVE confirmed by 3 sources.
+# Quorum request created
+#   Request ID : a3f9b2c1d4e5
+#   Approvals  : 0 / 2 required   Expires: 6 hours
+#   Requester excluded from approver pool</span>
+
+<span class="tok-cm"># Step 2: Each named approver votes (run independently)</span>
+oss-trust zeroday approve   --request-id a3f9b2c1d4e5   --approver-id approver_001   --mfa-token 123456
+
+<span class="tok-cm"># Step 3: Check status</span>
+oss-trust zeroday status --request-id a3f9b2c1d4e5
+<span class="tok-cm"># Request a3f9b2c1d4e5: APPROVED</span></pre></div>
+      </div>
+    </div>
+
+    <div style="margin-top:2rem;">
+      <div class="section-label" style="margin-bottom:1rem;">Trusted publisher allowlist — minimum viable config</div>
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">config/trusted_publishers.yaml</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Map your critical packages to canonical GitHub source repos.
+# Any provenance attestation from a different repo = BLOCK.
+# Packages not listed still pass signature check but skip repo-match.</span>
+
+<span class="tok-kw">npm</span>:
+  <span class="tok-str">"express"</span>: <span class="tok-str">"expressjs/express"</span>
+  <span class="tok-str">"@redhat-cloud-services/frontend-components"</span>: <span class="tok-str">"RedHatInsights/frontend-components"</span>
+  <span class="tok-str">"lodash"</span>: <span class="tok-str">"lodash/lodash"</span>
+
+<span class="tok-kw">PyPI</span>:
+  <span class="tok-str">"requests"</span>: <span class="tok-str">"psf/requests"</span>
+  <span class="tok-str">"cryptography"</span>: <span class="tok-str">"pyca/cryptography"</span>
+
+<span class="tok-kw">require_attestation</span>:      <span class="tok-cm"># Missing = BLOCK, not just quarantine</span>
+  <span class="tok-kw">npm</span>:
+    - <span class="tok-str">"@redhat-cloud-services/frontend-components"</span></pre></div>
+      </div>
+    </div>
+
+    <div style="border-bottom:1px solid var(--border);margin:2.5rem 0 2rem;padding-bottom:0.5rem">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:var(--text2)">🔧 Develop the framework</div>
+      <div style="font-size:0.85rem;color:var(--text3);margin-top:0.25rem">Adding patterns, implementing stubs, contributing to the codebase</div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.85rem;color:var(--text2)">
+      Only clone the framework repo if you are contributing to its development. If you just want to protect your project from supply chain attacks, use the <strong style="color:var(--text)">Use in your project</strong> section above.
+    </div>
+
+    <div class="install-tabs">
+      <button class="tab-btn active" onclick="showTab('dev-win')">Windows</button>
+      <button class="tab-btn" onclick="showTab('dev-mac')">Mac / Linux</button>
+      <button class="tab-btn" onclick="showTab('dev-test')">Run tests</button>
+      <button class="tab-btn" onclick="showTab('dev-contrib')">Contributing</button>
+    </div>
+
+    <div id="dev-win" class="tab-panel active">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">PowerShell</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># 1. Clone the framework repo</span>
+git clone https://github.com/chrisgillham/oss-trust-framework
+cd oss-trust-framework
+
+<span class="tok-cm"># 2. Create virtual environment</span>
+python -m venv .venv
+.venv\Scriptsctivate
+
+<span class="tok-cm"># 3. Install in editable mode with dev dependencies</span>
+pip install -e ".[dev]"
+
+<span class="tok-cm"># 4. Verify</span>
+oss-trust --version
+<span class="tok-cm"># oss-trust, version 0.2.0</span>
+
+<span class="tok-cm"># 5. Copy and configure environment</span>
+cp .env.example .env
+<span class="tok-cm"># Edit .env — add GITHUB_TOKEN, SIEM_HEC_ENDPOINT, etc.</span></pre></div>
+      </div>
+    </div>
+
+    <div id="dev-mac" class="tab-panel">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">bash</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># 1. Clone the framework repo</span>
+git clone https://github.com/chrisgillham/oss-trust-framework
+cd oss-trust-framework
+
+<span class="tok-cm"># 2. Create and activate virtual environment</span>
+python -m venv .venv && source .venv/bin/activate
+
+<span class="tok-cm"># 3. Install in editable mode with dev dependencies</span>
+pip install -e ".[dev]"
+
+<span class="tok-cm"># 4. Verify</span>
+oss-trust --version
+<span class="tok-cm"># oss-trust, version 0.2.0</span>
+
+<span class="tok-cm"># 5. Copy and configure environment</span>
+cp .env.example .env</pre></div>
+      </div>
+    </div>
+
+    <div id="dev-test" class="tab-panel">
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — run the test suite</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Full suite — 131 tests, all offline, under 5 seconds</span>
+pytest tests/ -v
+
+<span class="tok-cm"># With coverage (note: oss_trust_framework not src)</span>
+pytest tests/ -v --cov=oss_trust_framework --cov-report=term-missing
+
+<span class="tok-cm"># Run a specific gate</span>
+pytest tests/test_gate5_behavioral.py -v
+pytest tests/test_zeroday_lane.py -v
+
+<span class="tok-cm"># Run a single test</span>
+pytest tests/test_gate5_behavioral.py::test_ironworm_001_tor_onion -v</pre></div>
+      </div>
+    </div>
+
+    <div id="dev-contrib" class="tab-panel">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;font-size:0.85rem;color:var(--text2);line-height:1.7">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--text);margin-bottom:0.75rem">Three stub gates are ready for implementation:</div>
+        <div style="margin-bottom:0.5rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/sbom/differ.py</code> — Gate 4 SBOM delta (syft/cdxgen + CycloneDX diff)</div>
+        <div style="margin-bottom:0.5rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/sandbox/runner.py</code> — Gate 5 sandbox runner (gVisor + event feed to behavioral_patterns)</div>
+        <div style="margin-bottom:1rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/signature/gpg.py</code> — Gate 2 GPG fallback for non-Sigstore ecosystems</div>
+        <div>See <a href="https://github.com/chrisgillham/oss-trust-framework/blob/main/CONTRIBUTING.md" target="_blank" style="color:var(--accent)">CONTRIBUTING.md</a> for full guidelines. All PRs must pass the framework's own CI gate.</div>
+      </div>
     </div>
 
     <div id="pip" class="tab-panel active">

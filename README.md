@@ -176,37 +176,62 @@ Immediate full-fleet deploy + 48 h elevated alert window
 
 ## Installation
 
+There are two paths depending on what you want to do:
+
+### Use in your project (most common)
+
+You want to protect an existing repo from supply chain attacks. Do **not** clone the framework repo — just install it and add the GitHub Actions workflow.
+
 ```bash
-# From source (not yet published to PyPI)
+# Option A — from GitHub source (works right now)
+pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+
+# Option B — from PyPI (once published)
+pip install oss-trust-framework
+
+# Verify
+oss-trust --version
+# oss-trust, version 0.2.0
+```
+
+Then add the workflow to your repo (see [CI/CD Integration](#cicd-integration) below) and populate `config/trusted_publishers.yaml` with your critical packages.
+
+### Develop the framework (contributors)
+
+Only clone the repo if you are contributing — adding behavioral patterns, implementing stub gates, or working on the codebase.
+
+```bash
+# Clone and set up editable install
 git clone https://github.com/chrisgillham/oss-trust-framework
 cd oss-trust-framework
 
 # Windows
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e ".[dev]"
+python -m venv .venv && .venv\Scripts\activate
 
 # Mac/Linux
 python -m venv .venv && source .venv/bin/activate
+
+# Install with dev dependencies
 pip install -e ".[dev]"
 
 # Verify
 oss-trust --version
+# oss-trust, version 0.2.0
+
+cp .env.example .env
+# Edit .env — add GITHUB_TOKEN, SIEM_HEC_ENDPOINT, etc.
 ```
 
-**Note:** If you see `ModuleNotFoundError: No module named 'oss_trust_framework'` after install, ensure `pyproject.toml` contains:
-```toml
-[tool.hatch.build.targets.wheel]
-packages = ["oss_trust_framework"]
-```
-And that `oss_trust_framework/cli.py` exists containing:
-```python
-from oss_trust_framework.pipeline.cli import main
+**Note on coverage command:** Use `--cov=oss_trust_framework` not `--cov=src` — the package directory was renamed:
+```bash
+pytest tests/ -v --cov=oss_trust_framework --cov-report=term-missing
 ```
 
 ---
 
 ## Quickstart
+
+> **Installing the framework in your own project?** Use `pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"` — do not clone this repo. See [Installation](#installation) above.
 
 ```bash
 # Run the full pipeline against a single package
