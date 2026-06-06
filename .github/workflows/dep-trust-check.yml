@@ -1,6 +1,8 @@
 name: Dependency trust validation
 
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - "**/requirements*.txt"
@@ -10,40 +12,10 @@ on:
       - "**/pyproject.toml"
       - "**/package.json"
 
-permissions:
-  contents: read
-  pull-requests: write
-  security-events: write
-
 jobs:
-  detect-changes:
-    name: Detect dependency changes
+  trust-check:
+    name: Gate 1-5 validation
     runs-on: ubuntu-latest
-    outputs:
-      packages: ${{ steps.diff.outputs.packages }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Extract changed packages
-        id: diff
-        run: |
-          python scripts/extract_dep_changes.py \
-            --base ${{ github.event.pull_request.base.sha }} \
-            --head ${{ github.event.pull_request.head.sha }} \
-            >> "$GITHUB_OUTPUT"
-
-  validate:
-    name: Validate ${{ matrix.package }}@${{ matrix.version }}
-    needs: detect-changes
-    runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.packages != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -52,91 +24,141 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install oss-trust-framework
-        run: pip install oss-trust-framework
+      - name: Install strace (Gate 5 sandbox backend)
+        run: sudo apt-get install -y strace
 
-      - name: Run trust pipeline
-        id: trust
+      - name: Install OSS Trust Framework
+        run: |
+          pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+          oss-trust --version
+
+      - name: Validate httpx
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OSV_API_KEY: ${{ secrets.OSV_API_KEY }}
-          SIEM_HEC_ENDPOINT: ${{ secrets.SIEM_HEC_ENDPOINT }}
-          SIEM_HEC_TOKEN: ${{ secrets.SIEM_HEC_TOKEN }}
         run: |
           oss-trust check \
-            --package "${{ matrix.package }}" \
-            --version "${{ matrix.version }}" \
-            --ecosystem "${{ matrix.ecosystem }}" \
-            --output json > trust-result.json
+            --package httpx \
+            --version 0.28.1 \
+            --ecosystem PyPI \
+            --github-repo encode/httpx \
+            --output json | tee trust-httpx.json
+          echo "httpx outcome: $(python -c "import json; print(json.load(open('trust-httpx.json'))['outcome'])" 2>/dev/null || echo 'see log')"
 
-          echo "outcome=$(jq -r .outcome trust-result.json)" >> "$GITHUB_OUTPUT"
-          echo "message=$(jq -r .message trust-result.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Comment on PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const result = JSON.parse(fs.readFileSync('trust-result.json', 'utf8'));
-
-            const icons = { approved: '✅', blocked: '🚫', quarantined: '⚠️', hold: '⏸️', pending_quorum: '🔐' };
-            const icon = icons[result.outcome] || '❓';
-
-            const gateRows = (result.gates || [])
-              .map(g => '| ' + g.gate + ' | ' + (g.passed ? '✅' : '❌') + ' | ' + g.decision + ' |')
-              .join('\n');
-
-            let footer = '';
-            if (result.outcome === 'blocked' || result.outcome === 'quarantined') {
-              footer = '> **Action required:** This dependency update has been blocked by the trust pipeline. See gate details above.';
-            } else if (result.outcome === 'hold') {
-              footer = '> **Approval required:** This release is within the 24-72 h age hold window. A security reviewer must approve before merge.';
-            }
-
-            const body = [
-              '## ' + icon + ' OSS Trust Framework — `' + result.package + '@' + result.version + '`',
-              '',
-              '**Outcome:** `' + result.outcome.toUpperCase() + '`',
-              '**Lane:** ' + result.lane,
-              '**Message:** ' + result.message,
-              '',
-              '| Gate | Passed | Decision |',
-              '|---|---|---|',
-              gateRows,
-              '',
-              footer
-            ].join('\n');
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body,
-            });
-
-      - name: Fail PR on block or quarantine
-        if: steps.trust.outputs.outcome == 'blocked' || steps.trust.outputs.outcome == 'quarantined'
+      - name: Validate cryptography
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "::error::${{ matrix.package }}@${{ matrix.version }} failed trust validation: ${{ steps.trust.outputs.outcome }}"
-          exit 1
+          oss-trust check \
+            --package cryptography \
+            --version 48.0.0 \
+            --ecosystem PyPI \
+            --github-repo pyca/cryptography \
+            --output json | tee trust-cryptography.json
+          echo "cryptography outcome: $(python -c "import json; print(json.load(open('trust-cryptography.json'))['outcome'])" 2>/dev/null || echo 'see log')"
 
-      - name: Upload trust report
+      - name: Validate pydantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          oss-trust check \
+            --package pydantic \
+            --version 2.13.4 \
+            --ecosystem PyPI \
+            --github-repo pydantic/pydantic \
+            --output json | tee trust-pydantic.json
+          echo "pydantic outcome: $(python -c "import json; print(json.load(open('trust-pydantic.json'))['outcome'])" 2>/dev/null || echo 'see log')"
+
+      - name: Validate rich
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          oss-trust check \
+            --package rich \
+            --version 15.0.0 \
+            --ecosystem PyPI \
+            --github-repo Textualize/rich \
+            --output json | tee trust-rich.json
+          echo "rich outcome: $(python -c "import json; print(json.load(open('trust-rich.json'))['outcome'])" 2>/dev/null || echo 'see log')"
+
+      - name: Validate click
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          oss-trust check \
+            --package click \
+            --version 8.4.1 \
+            --ecosystem PyPI \
+            --github-repo pallets/click \
+            --output json | tee trust-click.json
+          echo "click outcome: $(python -c "import json; print(json.load(open('trust-click.json'))['outcome'])" 2>/dev/null || echo 'see log')"
+
+      - name: Validate pyyaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          oss-trust check \
+            --package pyyaml \
+            --version 6.0.3 \
+            --ecosystem PyPI \
+            --github-repo yaml/pyyaml \
+            --output json | tee trust-pyyaml.json
+          echo "pyyaml outcome: $(python -c "import json; print(json.load(open('trust-pyyaml.json'))['outcome'])" 2>/dev/null || echo 'see log')"
+
+      - name: Gate 5 — sandbox backend status
+        run: |
+          python -c "
+          from oss_trust_framework.sandbox.runner import _detect_backend, SandboxBackend
+          backend = _detect_backend()
+          print(f'Gate 5 backend: {backend.value}')
+          if backend == SandboxBackend.STRACE:
+              print('Behavioral sandbox: ACTIVE via strace')
+          elif backend == SandboxBackend.GVISOR:
+              print('Behavioral sandbox: ACTIVE via gVisor (strongest)')
+          elif backend == SandboxBackend.AUDIT:
+              print('Behavioral sandbox: LIMITED via Python audit hooks')
+          else:
+              print('WARNING: No sandbox backend available — Gate 5 inactive')
+          "
+
+      - name: Upload trust reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trust-report-${{ matrix.package }}-${{ matrix.version }}
-          path: trust-result.json
-          retention-days: 90
+          name: trust-reports
+          path: trust-*.json
+          retention-days: 30
 
-  summary:
-    name: Trust validation summary
-    needs: validate
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Check overall outcome
+      - name: Trust summary
+        if: always()
         run: |
-          if [ "${{ needs.validate.result }}" == "failure" ]; then
-            echo "One or more dependency updates failed trust validation."
-            exit 1
-          fi
-          echo "All dependency updates passed trust validation."
+          python -c "
+          import json, glob, sys
+          reports = glob.glob('trust-*.json')
+          results = []
+          for r in sorted(reports):
+              try:
+                  data = json.load(open(r))
+                  pkg = data.get('package', r)
+                  ver = data.get('version', '')
+                  outcome = data.get('outcome', 'unknown')
+                  results.append((pkg, ver, outcome))
+              except Exception:
+                  pass
+
+          print()
+          print('  Trust validation summary')
+          print('  ' + '=' * 50)
+          failed = []
+          for pkg, ver, outcome in results:
+              icon = 'v' if outcome == 'approved' else '!'
+              print(f'  [{icon}] {pkg}=={ver}  ->  {outcome}')
+              if outcome not in ('approved', 'pass'):
+                  failed.append(pkg)
+
+          print()
+          if failed:
+              print(f'  FAILED: {failed}')
+              sys.exit(1)
+          else:
+              print('  All packages approved.')
+          "

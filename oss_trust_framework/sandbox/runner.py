@@ -6,7 +6,7 @@ Full implementation with three execution backends:
   2. strace (development) — Linux only, no special setup
   3. Audit-log (Windows) — Python-level import/socket/file hooking, cross-platform
 
-Backend is selected automatically based on available tooling.
+Backend is selected automatically based on available tooling. 
 """
 
 from __future__ import annotations
