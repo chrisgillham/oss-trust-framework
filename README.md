@@ -4,7 +4,7 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.2 — Miasma/Shai-Hulud and IronWorm coverage added.** Gate 2.5 (CI/CD Pipeline Audit) and 34 behavioral patterns in Gate 5 directly counter the active attack campaigns hitting npm packages right now.
+> **v0.3 — Gate 0 (name similarity), Gate 2 GPG fallback, Gate 4 SBOM delta, scope boundary documentation.** Gate 5 behavioral pattern library is fully implemented (34 patterns); sandbox runner is on the development backlog — see [Contributing](#contributing).
 
 ---
 
@@ -40,10 +40,10 @@ This framework addresses all three patterns with layered, independent gates.
 Miasma and IronWorm both produce packages with valid Sigstore signatures — the attacker controls a real CI/CD pipeline with real OIDC credentials. Gate 2.5 audits the *chain of custody* behind the signature: was there a PR? Did it go through normal merge? Does the attestation point to the canonical org repo or a compromised fork?
 
 ### Behavior-based patterns defeat encrypted and obfuscated payloads
-IronWorm generates a unique encrypted payload per infection specifically to defeat hash-based IOCs. Gate 5 matches on *what the payload does* — Tor .onion connections, eBPF syscalls, AI API key access, Exodus wallet reads — not what it looks like. 34 named patterns across two confirmed attack families.
+IronWorm generates a unique encrypted payload per infection specifically to defeat hash-based IOCs. The 34 named behavioral patterns in Gate 5 match on *what the payload does* — Tor .onion connections, eBPF syscalls, AI API key access, Exodus wallet reads — not what it looks like. **Note:** Gate 5's sandbox runner is on the development backlog — the pattern library is complete but the gVisor executor that feeds it real events is not yet implemented. See [Contributing](#contributing).
 
 ### Structural defense — no single point of failure
-Each gate queries sources architecturally independent of the compromised repository. Defeating the framework requires compromising NVD + OSV + GHSA + OpenSSF Scorecard + deps.dev + the npm attestation registry + the gVisor sandbox simultaneously. No single compromised account, repository, CI/CD pipeline, or kernel rootkit is sufficient. IronWorm's eBPF rootkit cannot escape the gVisor kernel boundary.
+Each gate queries sources architecturally independent of the compromised repository. Defeating the framework requires compromising NVD + OSV + GHSA + OpenSSF Scorecard + deps.dev + the npm attestation registry simultaneously. No single compromised account, repository, or CI/CD pipeline is sufficient. When the Gate 5 sandbox runner is implemented, IronWorm's eBPF rootkit will also be unable to escape the gVisor kernel boundary.
 
 ### Zero-day patches move fast without moving unsafely
 The 72-hour age hold is the highest-ROI control in the framework, but it creates a gap when a legitimate zero-day patch drops. The expedited lane bypasses *only* the age gate, with machine-verified CVE confirmation, 2-of-3 MFA quorum approval, and a 6-hour token TTL.
@@ -147,12 +147,11 @@ Dependency update request
 └──────────┬───────────┘
            │
            ▼
-┌──────────────────────┐   Tor C2 / temp.sh ──► BLOCKED  ◄── IronWorm: exfil
-│  Gate 5: Behavioral  │   eBPF rootkit ──► BLOCKED       ◄── IronWorm: rootkit
-│  Sandbox (gVisor)    │   AI API key harvest ──► BLOCKED  ◄── IronWorm: OPENAI_API_KEY
-│  34 named patterns   │   Cloud cred harvest ──► BLOCKED  ◄── Miasma: IMDS/OIDC
-│  (18 Miasma +        │   Exodus wallet ──► BLOCKED       ◄── IronWorm: crypto theft
-│   16 IronWorm)       │   Registry publish ──► BLOCKED    ◄── Both: re-publish
+┌──────────────────────┐   ⚠ BACKLOG — sandbox runner not yet implemented
+│  Gate 5: Behavioral  │   34 patterns IMPLEMENTED (18 Miasma + 16 IronWorm)
+│  Sandbox             │   sandbox runner STUB — installs not executed/sandboxed
+│  [PATTERN LIBRARY ✓] │   When implemented: Tor C2, eBPF rootkit, AI API keys,
+│  [RUNNER — BACKLOG]  │   Exodus wallet, IMDS, OIDC tokens — all → BLOCK
 └──────────┬───────────┘
            │
            ▼
@@ -179,7 +178,7 @@ Provenance attestation + timing check (must postdate CVE publication)
 CI/CD audit Gates 2.5a–c (mandatory — compromised-account patches are still caught)
         │
         ▼
-Behavioral sandbox (gVisor · no network · all 34 patterns active)
+Behavioral sandbox (34 patterns active · ⚠ sandbox runner backlog — installs not currently executed)
         │
         ▼
 Audit record (SIEM event + ticket link mandatory before deploy)
@@ -207,7 +206,7 @@ pip install oss-trust-framework
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.2.0
+# oss-trust, version 0.3.0
 ```
 
 Then add the workflow to your repo (see [CI/CD Integration](#cicd-integration) below) and populate `config/trusted_publishers.yaml` with your critical packages.
@@ -232,7 +231,7 @@ pip install -e ".[dev]"
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.2.0
+# oss-trust, version 0.3.0
 
 cp .env.example .env
 # Edit .env — add GITHUB_TOKEN, SIEM_HEC_ENDPOINT, etc.
@@ -361,7 +360,7 @@ pytest --cov=oss_trust_framework --cov-report=term-missing
 ### Test design notes
 
 - All external API calls (PyPI, OSV, OpenSSF, GitHub) are mocked — tests run fully offline
-- Gate 5 tests cover every named pattern individually — 18 Miasma + 16 IronWorm
+- Gate 5 tests cover every named pattern individually — 18 Miasma + 16 IronWorm (pattern library tests pass; sandbox runner is a stub so no integration tests yet)
 - Zero-day tests cover the full lifecycle: create → approve (×2) → quorum → post-approval state
 - Integration tests include regression cases for `requests 2.32.3` (2 CVEs) vs `2.33.0` (clean)
 - Gate 3 source failure is tested: individual source unavailability degrades score gracefully rather than failing the gate
@@ -380,7 +379,7 @@ pytest --cov=oss_trust_framework --cov-report=term-missing
 | **2.5c — PR provenance** | Release backed by merged PR with ≥ 1 approving reviewer | Block (no PR) · Quarantine (no review) | No |
 | **3 — OOB Trust** | OpenSSF Scorecard ≥ threshold; zero active CVEs via OSV + deps.dev + GHSA | Quarantine | No |
 | **4 — SBOM delta** | No unexpected transitive deps; lock file hash unchanged | Quarantine | No |
-| **5 — Behavioral sandbox** | gVisor install-time execution; 34 named behavioral patterns (18 Miasma + 16 IronWorm) | Block | No |
+| **5 — Behavioral sandbox** | 34 named patterns (18 Miasma + 16 IronWorm) — pattern library complete; **sandbox runner is a backlog stub** — installs are not currently executed or sandboxed | Block (when runner implemented) · Pass (stub) | No |
 
 ---
 
@@ -410,8 +409,8 @@ A Rust ELF binary (`tools/setup`, UPX-packed with overwritten magic bytes) is dr
 | Published from compromised `asteroiddao` account | **2** | `sourceRepositoryURI` mismatch → BLOCK |
 | Orphan commits with backdated timestamps | **2.5a** | Graph reachability — timestamps irrelevant → BLOCK |
 | No merged PR for release | **2.5c** | No PR → DIRECT_PUSH → BLOCK |
-| Rust ELF binary dropped via `preinstall` hook | **5** | IRONWORM-002b: `tools/setup` process event → BLOCK |
-| eBPF kernel rootkit load | **5** | IRONWORM-002: `BPF_PROG_LOAD` syscall → BLOCK (gVisor boundary prevents escape) |
+| Rust ELF binary dropped via `preinstall` hook | **5** ⚠ | IRONWORM-002b: `tools/setup` process event → BLOCK *(pattern implemented; sandbox runner is a backlog stub)* |
+| eBPF kernel rootkit load | **5** ⚠ | IRONWORM-002: `BPF_PROG_LOAD` syscall → BLOCK *(pattern implemented; sandbox runner is a backlog stub)* |
 | AI API key harvest (OpenAI, Anthropic, Gemini, Cohere) | **5** | IRONWORM-003: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` env access → BLOCK |
 | AWS / GCP / Azure / Vault credential theft | **5** | CRED-003/004 + IRONWORM-004: credential file reads → BLOCK |
 | SSH key theft | **5** | CRED-005: `/root/.ssh` file access → HIGH |
@@ -429,7 +428,7 @@ Bypassing the framework requires compromising all of the following simultaneousl
 - The package registry's provenance attestation system (Sigstore/npm)
 - NVD, OSV, and GitHub Security Advisories (for the zero-day lane)
 - OpenSSF Scorecard and deps.dev (Gate 3)
-- The behavioral sandbox runtime (gVisor — IronWorm's eBPF rootkit cannot escape the kernel boundary)
+- The behavioral sandbox runtime (when Gate 5 sandbox runner is implemented — currently a backlog stub)
 - The quorum approval process (2-of-3 named individuals with MFA)
 
 ---
@@ -462,6 +461,8 @@ All sources queried independently of the package repository. A compromised repo 
 ---
 
 ## Behavioral Patterns (Gate 5)
+
+> **⚠ Development backlog:** The 34 named patterns below are fully implemented and tested in `behavioral_patterns.py`. The **sandbox runner** (`sandbox/runner.py`) that executes real package installs and feeds events into these patterns is a stub — pattern matching is inactive until the runner is implemented. See [Contributing](#contributing).
 
 34 named patterns across two confirmed attack families. Matched by event type — encryption, obfuscation, and unique-per-infection payloads are irrelevant to behavioral matching.
 
@@ -516,19 +517,24 @@ All sources queried independently of the package repository. A compromised repo 
 ```
 oss-trust-framework/
 ├── oss_trust_framework/            # Installable Python package
+│   ├── name_similarity/
+│   │   └── checker.py              # Gate 0 — typosquat/impersonation detection (3 algorithms)
 │   ├── age_check/
 │   │   └── checker.py              # Gate 1 — multi-ecosystem registry timestamp fetching
 │   ├── signature/
-│   │   └── provenance.py           # Gate 2 — npm/PyPI attestation + publisher repo allowlist
+│   │   ├── provenance.py           # Gate 2 — npm/PyPI attestation + publisher repo allowlist
+│   │   └── gpg.py                  # Gate 2 — GPG fallback for non-Sigstore ecosystems (keyring population required)
 │   ├── cicd_audit/                 # Gate 2.5 — CI/CD pipeline audit (Miasma/IronWorm class)
 │   │   ├── orphan_commits.py       # 2.5a — BFS commit graph walk; detects direct pushes
 │   │   ├── workflow_permissions.py # 2.5b — dangerous perm detection + compensating controls
 │   │   └── pr_provenance.py        # 2.5c — release must trace to reviewed merged PR
 │   ├── trust/
 │   │   └── aggregator.py           # Gate 3 — concurrent OpenSSF/OSV/deps.dev/GHSA queries
-│   ├── sbom/                       # Gate 4 — SBOM delta and hash pinning (stub)
+│   ├── sbom/
+│   │   └── differ.py               # Gate 4 — CycloneDX SBOM delta + hash pin (syft required)
 │   ├── sandbox/
-│   │   └── behavioral_patterns.py  # Gate 5 — 34 patterns: 18 Miasma + 16 IronWorm
+│   │   ├── behavioral_patterns.py  # Gate 5 — 34 patterns: 18 Miasma + 16 IronWorm (COMPLETE)
+│   │   └── runner.py               # Gate 5 — gVisor sandbox executor (BACKLOG STUB)
 │   ├── zeroday/
 │   │   └── validator.py            # CVE machine-validation + quorum approval manager
 │   ├── config.py                   # Config loader and quorum manager factory
