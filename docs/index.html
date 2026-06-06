@@ -560,8 +560,8 @@ footer {
         <div class="stat-label">Validation gates</div>
       </div>
       <div>
-        <div class="stat-num">34</div>
-        <div class="stat-label">Behavioral patterns (18 Miasma · 16 IronWorm)</div>
+        <div class="stat-num">6</div>
+        <div class="stat-label">Validation gates (Gate 0–5)</div>
       </div>
       <div>
         <div class="stat-num">6h</div>
@@ -657,6 +657,20 @@ footer {
   </div>
 </section>
 
+
+<!-- SCOPE NOTE -->
+<div style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:1.25rem 2rem">
+  <div class="container" style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+    <div style="background:rgba(74,158,255,0.12);border:1px solid rgba(74,158,255,0.25);border-radius:8px;padding:0.35rem 0.75rem;font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--accent);white-space:nowrap;flex-shrink:0">SCOPE</div>
+    <p style="font-size:0.875rem;color:var(--text2);margin:0;line-height:1.6">
+      <strong style="color:var(--text)">Supply chain integrity layer — not a runtime monitor.</strong>
+      This framework validates open source dependencies before they enter your environment.
+      Threats that manifest at runtime (a service beaconing after startup, an MCP server modifying outbound traffic)
+      require complementary runtime tooling such as Falco or Tetragon.
+      These are parallel controls — <a href="#scope" style="color:var(--accent)">see the scope boundary</a>.
+    </p>
+  </div>
+</div>
 <!-- ── PIPELINE ── -->
 <section class="pipeline-section" id="pipeline">
   <div class="container">
@@ -1746,7 +1760,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2.5b<br>2.5c, ZD</td>
           </tr>
           <tr style="background:rgba(74,158,255,0.03)">
-            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-03-Dependency-Chain-Abuse" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-3</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-03-Dependency-Chain-Abuse" target="_blank" style="color:var(--accent);text-decoration:none" title="Partially addressed — Gate 5 sandbox runner is a stub">CICD-SEC-3</a></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Dependency Chain Abuse <span style="font-size:0.68rem;background:rgba(74,158,255,0.15);color:var(--accent);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">PRIMARY THREAT</span></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">The core mission of the framework. All five gates validate every dependency update — age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. The Miasma, IronWorm, TanStack, and XZ Utils attacks are all real-world dependency chain abuse.</td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 1–5</td>
@@ -1764,7 +1778,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gate 2.5b</td>
           </tr>
           <tr>
-            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-06-Insufficient-Credential-Hygiene" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-6</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-06-Insufficient-Credential-Hygiene" target="_blank" style="color:var(--accent);text-decoration:none" title="Partially addressed — Gate 5 sandbox runner is a stub">CICD-SEC-6</a></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient Credential Hygiene <span style="font-size:0.68rem;background:rgba(245,166,35,0.12);color:var(--amber);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">IronWorm class</span></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 5 detects credential harvesting at install time: AWS/GCP/Azure file reads (CRED-001–005), Vault token access (IRONWORM-004), npm auth token theft (IRONWORM-006), AI API key harvest (IRONWORM-003). Gate 2 catches packages published using stolen OIDC tokens via sourceRepositoryURI mismatch.</td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2, 5</td>
@@ -1814,6 +1828,76 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
         <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--red)">0</div>
         <div style="font-size:0.8rem;color:var(--text2);margin-top:0.25rem">Risks not addressed</div>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- SCOPE BOUNDARY -->
+<section id="scope" style="background:var(--bg)">
+  <div class="container">
+    <div class="section-label">Scope boundary</div>
+    <div class="section-title">Supply chain integrity vs runtime monitoring.</div>
+    <p class="section-sub">The framework validates dependencies before they enter your environment. This is distinct from — and complementary to — runtime security monitoring.</p>
+
+    <div style="overflow-x:auto;border-radius:var(--radius-lg);border:1px solid var(--border);margin-bottom:2rem">
+      <table style="width:100%;border-collapse:collapse">
+        <thead style="background:var(--surface)">
+          <tr>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">Threat</th>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">Framework coverage</th>
+            <th style="padding:0.8rem 1.1rem;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:0.75rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border)">Complementary control</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top">Malicious install script (IronWorm preinstall hook)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--amber)">⚠ Partial</span> — Gate 5 patterns implemented; sandbox runner is a backlog stub</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text3);vertical-align:top">—</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top">Compromised publisher account (Miasma / PPE)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--green)">✓ Full</span> — Gates 2, 2.5a, 2.5b, 2.5c</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text3);vertical-align:top">—</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top">Typosquat / name impersonation (postmark-mcp-evil)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--green)">✓ Full</span> — Gate 0 name similarity (3 algorithms)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text3);vertical-align:top">—</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top">Known CVE in dependency</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--green)">✓ Full</span> — Gate 3 OOB trust (OSV, GHSA, Scorecard)</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text3);vertical-align:top">—</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top"><strong>Runtime exfiltration</strong> — MCP server BCC'ing outbound email, library beaconing after startup</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--red)">✗ Out of scope</span> — this framework validates at install time only</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Falco, Tetragon, eBPF-based runtime monitoring</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;vertical-align:top"><strong>Deferred activation</strong> — payload triggered by condition after install</td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top"><span style="color:var(--red)">✗ Out of scope</span></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Runtime monitoring + behavioral analysis in production</td>
+          </tr>
+          <tr>
+            <td style="padding:0.85rem 1.1rem;font-size:0.83rem;vertical-align:top"><strong>Semantic impersonation</strong> — secure-requests impersonating requests (low string similarity)</td>
+            <td style="padding:0.85rem 1.1rem;font-size:0.82rem;vertical-align:top"><span style="color:var(--red)">✗ Not detected</span> — Gate 0 requires string similarity; semantic matching not implemented</td>
+            <td style="padding:0.85rem 1.1rem;font-size:0.82rem;color:var(--text2);vertical-align:top">Manual allowlist review; socket.dev / package reputation scoring</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.5rem">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.5rem">Gate 5 sandbox runner — development backlog</div>
+      <p style="font-size:0.85rem;color:var(--text2);margin-bottom:0.75rem;line-height:1.65">
+        The 34 behavioral patterns (18 Miasma + 16 IronWorm) are fully implemented and tested by 50 unit tests.
+        The missing piece is <code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px">sandbox/runner.py</code> —
+        the gVisor or strace-based executor that runs real installs and feeds events into the pattern matcher.
+        Until this is implemented, Gate 5 passes all packages without behavioral analysis.
+        The OWASP coverage table reflects this: CICD-SEC-3 and CICD-SEC-6 are marked partial.
+      </p>
+      <a href="https://github.com/chrisgillham/oss-trust-framework/blob/main/oss_trust_framework/sandbox/runner.py" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;background:var(--accent);color:#000;font-family:'Syne',sans-serif;font-weight:700;font-size:0.8rem;padding:0.45rem 1rem;border-radius:6px;text-decoration:none">View implementation spec on GitHub →</a>
     </div>
   </div>
 </section>

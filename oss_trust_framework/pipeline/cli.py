@@ -23,7 +23,7 @@ console = Console()
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="oss-trust")
+@click.version_option(version="0.3.0", prog_name="oss-trust")
 def main() -> None:
     """OSS Trust Framework — supply chain validation pipeline."""
 

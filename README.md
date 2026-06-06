@@ -54,6 +54,12 @@ Every gate decision, zero-day exception, and approval event emits a structured S
 ### Drop-in CI/CD integration
 The GitHub Actions workflow fires automatically on any lock file change, comments gate results on PRs, and fails the build on block or quarantine. No per-repo configuration after initial setup.
 
+### Catches typosquatting and package impersonation at the door
+Gate 0 runs before any network query. It compares the requested package name against every entry in your trusted publisher allowlist using three algorithms — Levenshtein edit distance, prefix-addition detection, and adjacent character transposition. `postmark-mcp-evil` vs `postmark-mcp` scores 95% similarity and is blocked before Gate 1 even runs. No network required.
+
+### Supply chain integrity — not a substitute for runtime monitoring
+The framework validates dependencies **before they enter your environment**. It is a supply chain integrity layer, not a runtime security monitor. Threats that manifest after install — a long-running MCP server BCC'ing outbound email, a library that beacons only after a specific condition is met — require complementary runtime tooling (Falco, Tetragon, eBPF-based monitoring). These are parallel controls, not competing ones.
+
 ### 131-test suite with no external dependencies
 All tests run offline with mocked API calls. Gate 1 threshold boundaries, all 34 named behavioral patterns, full zero-day quorum lifecycle, cross-gate integration scenarios, and regression tests for known CVE-affected package versions.
 
@@ -70,7 +76,7 @@ The framework directly addresses all 10 of the [OWASP Top 10 CI/CD Security Risk
 | **CICD-SEC-3** | Dependency Chain Abuse | The core mission of the framework. Gates 1–5 collectively validate every dependency update before ingestion — age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. This is exactly the attack class the framework was built to stop. | Gates 1–5 |
 | **CICD-SEC-4** | Poisoned Pipeline Execution (PPE) | Gate 2.5a detects orphan commits — direct pushes bypassing the merge queue. Gate 2.5c confirms every release traces to a reviewed merged PR. Gate 2.5b flags workflows with dangerous permissions exploitable via PPE. The Miasma / Shai-Hulud attack class is a direct real-world example of PPE. | Gates 2.5a, 2.5b, 2.5c |
 | **CICD-SEC-5** | Insufficient PBAC (Pipeline-Based Access Controls) | Gate 2.5b enforces Pipeline-Based Access Controls by auditing `id-token: write`, `contents: write`, and `packages: write` permissions in publishing workflows, and requiring compensating controls (branch protection, CODEOWNERS, environment protection rules) when these permissions exist. | Gate 2.5b |
-| **CICD-SEC-6** | Insufficient Credential Hygiene | Gate 5 detects credential harvesting at install time: AWS/GCP/Azure credential file reads (CRED-001 to CRED-005), Vault token access (IRONWORM-004), npm auth token theft (IRONWORM-006), AI API key harvest (IRONWORM-003), and SSH key reads (CRED-005). Gate 2 detects packages published using stolen OIDC tokens by verifying `sourceRepositoryURI` in provenance attestations. | Gates 2, 5 |
+| **CICD-SEC-6** | Insufficient Credential Hygiene | Gate 5 behavioral patterns detect credential harvesting at install time: AWS/GCP/Azure reads (CRED-001–005), Vault tokens (IRONWORM-004), npm auth tokens (IRONWORM-006), AI API keys (IRONWORM-003). Gate 2 detects stolen OIDC token misuse. **Note:** Gate 5 sandbox runner is a stub — pattern matching is implemented but inactive until `sandbox/runner.py` is completed. See backlog. | Gates 2, 5 |
 | **CICD-SEC-7** | Insecure System Configuration | Gate 2.5b checks for insecure CI/CD configuration: `id-token: write` without environment protection rules, missing branch protection, and absent CODEOWNERS. The framework's own `dep-trust-check.yml` workflow is itself subject to the pipeline. | Gate 2.5b |
 | **CICD-SEC-8** | Ungoverned Usage of 3rd Party Services | Gate 3 queries OpenSSF Scorecard, OSV, deps.dev, and GitHub Advisories to independently evaluate every third-party dependency. Gate 4 SBOM delta catches unexpected transitive dependencies introduced by third-party packages. `trusted_publishers.yaml` governs which external publisher repos are trusted per package. | Gates 3, 4 |
 | **CICD-SEC-9** | Improper Artifact Integrity Validation | Gate 2 verifies Sigstore / GPG cryptographic signatures and cross-checks `sourceRepositoryURI` in provenance attestations against the trusted publishers allowlist. Gate 4 pins exact hashes in lock files and detects integrity changes. Gate 2.5a confirms the tagged commit is reachable from the default branch, preventing detached / orphaned artifact publishing. | Gates 2, 2.5a, 4 |
@@ -81,19 +87,29 @@ The framework directly addresses all 10 of the [OWASP Top 10 CI/CD Security Risk
 | Coverage level | Risks |
 |---|---|
 | Fully addressed — multiple independent gates | CICD-SEC-3, CICD-SEC-4, CICD-SEC-9 |
-| Fully addressed — dedicated gate controls | CICD-SEC-1, CICD-SEC-2, CICD-SEC-5, CICD-SEC-6, CICD-SEC-7, CICD-SEC-8, CICD-SEC-10 |
-| Not addressed | None — all 10 have direct gate implementations |
+| Fully addressed — dedicated gate controls | CICD-SEC-1, CICD-SEC-2, CICD-SEC-5, CICD-SEC-7, CICD-SEC-8, CICD-SEC-10 |
+| Partially addressed — Gate 5 sandbox runner stubbed | CICD-SEC-3, CICD-SEC-6 |
+| Not addressed | None — all 10 have gate implementations (some complete, some stub) |
 
-The framework provides complete coverage across all 10 OWASP CI/CD Security Risks. CICD-SEC-3 (Dependency Chain Abuse) is addressed by the entire gate pipeline — it is the primary threat the framework was designed to defeat. CICD-SEC-4 (Poisoned Pipeline Execution) maps directly to Gate 2.5 (CI/CD Pipeline Audit), which was added specifically in response to the Miasma / Shai-Hulud attack class — a real-world PPE campaign active in 2026.
+The framework provides coverage across all 10 OWASP CI/CD Security Risks. CICD-SEC-3 and CICD-SEC-6 are marked partial because Gate 5's sandbox runner (which would execute installs and generate behavioral events) is currently stubbed. The behavioral pattern library (34 patterns) is fully implemented — the missing piece is the sandbox executor that feeds it real events. See the [development backlog](#contributing) for implementation details.
 
 ---
 
 ## Architecture
 
+> **Scope:** This framework validates supply chain integrity at dependency install time. It does not monitor runtime application behaviour. See [Supply chain integrity vs runtime monitoring](#supply-chain-integrity-vs-runtime-monitoring) for details.
+
 ```
 Dependency update request
         │
         ▼
+┌──────────────────────┐   Name ≥ 92% similar to trusted pkg ──► BLOCKED   ◄── postmark-mcp-evil
+│  Gate 0: Name        │   Name ≥ 80% similar ──► WARN (manual review)
+│  Similarity Check    │   Exact allowlist match ──► pass immediately
+│  (local, no network) │   3 algorithms: Levenshtein · prefix · char-swap
+└──────────┬───────────┘
+           │
+           ▼
 ┌──────────────────────┐   < 24 h, no CVE ──► BLOCKED
 │  Gate 1: Age Hold    │
 │  24 h hard block     │   Zero-day CVE filed? ──► Expedited Lane ──────────────┐
@@ -356,6 +372,7 @@ pytest --cov=oss_trust_framework --cov-report=term-missing
 
 | Gate | Controls | Fail action | Bypassable? |
 |---|---|---|---|
+| **0 — Name similarity** | Package name vs trusted allowlist — Levenshtein, prefix-addition, char-swap detection | Warn (≥80%) · Block (≥92%) | No |
 | **1 — Age** | Release timestamp vs 24 h / 72 h thresholds | Block / Hold | Age only — with CVE + MFA quorum |
 | **2 — Provenance** | Sigstore attestation present; `sourceRepositoryURI` matches allowlist | Block (mismatch) · Quarantine (missing) | No |
 | **2.5a — Orphan commits** | Release tag commit reachable from default branch via BFS graph walk | Block | No |
@@ -542,17 +559,37 @@ oss-trust-framework/
 
 ---
 
+## Supply chain integrity vs runtime monitoring
+
+The OSS Trust Framework is a **supply chain integrity** tool. It validates dependencies before they enter your environment. This is a fundamentally different control than runtime security monitoring, and the two are complementary — not competing.
+
+| Threat | Framework coverage | What you also need |
+|---|---|---|
+| Malicious install script (IronWorm preinstall hook) | Gate 5 — behavioral sandbox (when runner implemented) | — |
+| Compromised publisher account (Miasma) | Gates 2, 2.5, 5 | — |
+| Typosquat / impersonation (postmark-mcp-evil) | Gate 0 — name similarity | — |
+| Known CVE in dependency | Gate 3 — OOB trust aggregation | — |
+| **Runtime exfiltration** (MCP server BCC'ing email) | **Not covered** | Runtime monitoring (Falco, Tetragon) |
+| **Deferred activation** (library beacons after condition met) | **Not covered** | Runtime monitoring |
+| **Semantic impersonation** (secure-requests impersonating requests) | **Not covered** — low string similarity | Manual allowlist review |
+
+The postmark-mcp impersonation attack (September 2025, first in-the-wild malicious MCP server) is a good illustration of this boundary. Gate 0 would have flagged the name similarity. But the BCC behavior itself — triggered at runtime when the server handled email — is outside install-time sandboxing scope. Both layers are necessary.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Three gates are implemented as stubs — good first issues:
+**Implemented gates:** 0 (name similarity), 1 (age), 2 (provenance), 2.5a/b/c (CI/CD audit), 3 (OOB trust), zero-day lane.
 
-| Gate | File | What to implement |
-|---|---|---|
-| 4 — SBOM delta | `oss_trust_framework/sbom/differ.py` | syft/cdxgen invocation; CycloneDX JSON diff; lock file hash pinning |
-| 5 — Sandbox runner | `oss_trust_framework/sandbox/runner.py` | gVisor container launch; install execution; event feed to `behavioral_patterns.evaluate_sandbox_events()` |
-| 2 — GPG fallback | `oss_trust_framework/signature/gpg.py` | GPG verification for ecosystems not yet on Sigstore |
+**Partially implemented:** Gate 4 (SBOM delta logic complete, syft required), Gate 2 GPG fallback (implemented, keyring population required).
+
+**Backlog — highest impact open contribution:**
+
+| Gate | File | Status | What to implement |
+|---|---|---|---|
+| 5 — Sandbox runner | `oss_trust_framework/sandbox/runner.py` | **STUB — backlog** | gVisor/strace container execution; syscall event capture; feed to `behavioral_patterns.evaluate_sandbox_events()` |
+
+The 34 behavioral patterns and event matching logic are fully implemented and tested. The sandbox runner is the missing piece that executes real installs and generates the events. See the file's module docstring for the complete implementation spec and infrastructure requirements.
 
 All PRs must pass the framework's own CI gate. Zero-day lane changes require CISO sign-off.
 
