@@ -60,3 +60,9 @@ strict = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/chrisgillham/oss-trust-framework"
+Documentation = "https://chrisgillham.github.io/oss-trust-framework"
+Repository = "https://github.com/chrisgillham/oss-trust-framework"
+"Bug Tracker" = "https://github.com/chrisgillham/oss-trust-framework/issues"
