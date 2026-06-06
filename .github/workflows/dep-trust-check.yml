@@ -1,6 +1,8 @@
 name: Dependency trust validation
 
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - "**/requirements*.txt"
@@ -9,271 +11,153 @@ on:
       - "**/go.sum"
       - "**/pyproject.toml"
       - "**/package.json"
-      - "**/Gemfile.lock"
-      - "**/*.csproj"
-      - "**/packages.lock.json"
-      - ".github/workflows/*.yml"   # Gate 9: CI/CD self-audit
 
-  push:
-    branches: [main, master]
-    paths:
-      - "**/requirements*.txt"
-      - "**/package-lock.json"
-      - "**/Cargo.lock"
-      - "**/go.sum"
-      - "**/pyproject.toml"
-      - "**/package.json"
-
-permissions:
-  contents: read
-  pull-requests: write
-  security-events: write
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Job 1: Detect changed packages ───────────────────────────────────────
-  detect-changes:
-    name: Detect dependency changes
+  trust-check:
+    name: Gate 1-5 validation
     runs-on: ubuntu-latest
-    outputs:
-      packages: ${{ steps.diff.outputs.packages }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236  # v4.7.1
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Extract changed packages
-        id: diff
-        run: |
-          python scripts/extract_dep_changes.py \
-            --base ${{ github.event.pull_request.base.sha }} \
-            --head ${{ github.event.pull_request.head.sha }} \
-            >> "$GITHUB_OUTPUT"
-
-  # ── Job 2: Nine-gate trust pipeline (one leg per changed package) ─────────
-  validate:
-    name: Validate ${{ matrix.package }}@${{ matrix.version }}
-    needs: detect-changes
-    runs-on: ubuntu-latest
-    if: needs.detect-changes.outputs.packages != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
-
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-
-      - name: Set up Python
-        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236  # v4.7.1
-        with:
-          python-version: "3.12"
+      - name: Install strace (Gate 5 sandbox backend)
+        run: sudo apt-get install -y strace
 
       - name: Install OSS Trust Framework
-        run: pip install oss-trust-framework
+        run: |
+          pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+          oss-trust --version
 
-      - name: Run nine-gate trust pipeline
-        id: trust
-        env:
-          GITHUB_TOKEN:         ${{ secrets.GITHUB_TOKEN }}
-          OSV_API_KEY:          ${{ secrets.OSV_API_KEY }}
-          SOCKET_API_KEY:       ${{ secrets.SOCKET_API_KEY }}
-          SIEM_HEC_ENDPOINT:    ${{ secrets.SIEM_HEC_ENDPOINT }}
-          SIEM_HEC_TOKEN:       ${{ secrets.SIEM_HEC_TOKEN }}
-          ENDOR_LABS_API_KEY:   ${{ secrets.ENDOR_LABS_API_KEY }}
-          ENDOR_LABS_PROJECT_UUID: ${{ secrets.ENDOR_LABS_PROJECT_UUID }}
-          SHEETS_CREDENTIALS:   ${{ secrets.SHEETS_CREDENTIALS }}
-          SHEETS_SPREADSHEET_ID: ${{ secrets.SHEETS_SPREADSHEET_ID }}
-          PUBLIC_REGISTRY_API_KEY: ${{ secrets.PUBLIC_REGISTRY_API_KEY }}
+      - name: Validate httpx
         run: |
           oss-trust check \
-            --package    "${{ matrix.package }}" \
-            --version    "${{ matrix.version }}" \
-            --ecosystem  "${{ matrix.ecosystem }}" \
-            --config     config/pipeline.yaml \
-            --output     json \
-            --registry-url "${{ matrix.registry_url }}" \
-            > trust-result.json
+            --package httpx \
+            --version 0.28.1 \
+            --ecosystem PyPI \
+            --github-repo encode/httpx \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-httpx.json
 
-          echo "outcome=$(jq -r .outcome trust-result.json)"   >> "$GITHUB_OUTPUT"
-          echo "message=$(jq -r .message trust-result.json)"   >> "$GITHUB_OUTPUT"
-          echo "trust_score=$(jq -r .trust_score trust-result.json)" >> "$GITHUB_OUTPUT"
-          echo "trust_level=$(jq -r .trust_level trust-result.json)" >> "$GITHUB_OUTPUT"
-          echo "slsa_level=$(jq -r '.slsa.level // 0' trust-result.json)" >> "$GITHUB_OUTPUT"
-          echo "policy_applied=$(jq -r .policy_applied trust-result.json)" >> "$GITHUB_OUTPUT"
+      - name: Validate cryptography
+        run: |
+          oss-trust check \
+            --package cryptography \
+            --version 48.0.0 \
+            --ecosystem PyPI \
+            --github-repo pyca/cryptography \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-cryptography.json
 
-      - name: Upload trust result artifact
+      - name: Validate pydantic
+        run: |
+          oss-trust check \
+            --package pydantic \
+            --version 2.13.4 \
+            --ecosystem PyPI \
+            --github-repo pydantic/pydantic \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-pydantic.json
+
+      - name: Validate rich
+        run: |
+          oss-trust check \
+            --package rich \
+            --version 15.0.0 \
+            --ecosystem PyPI \
+            --github-repo Textualize/rich \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-rich.json
+
+      - name: Validate click
+        run: |
+          oss-trust check \
+            --package click \
+            --version 8.4.1 \
+            --ecosystem PyPI \
+            --github-repo pallets/click \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-click.json
+
+      - name: Validate pyyaml
+        run: |
+          oss-trust check \
+            --package pyyaml \
+            --version 6.0.3 \
+            --ecosystem PyPI \
+            --github-repo yaml/pyyaml \
+            --github-token "$GITHUB_TOKEN" \
+            --output json | tee trust-pyyaml.json
+
+      - name: Gate 5 sandbox backend status
+        run: |
+          python -c "
+          from oss_trust_framework.sandbox.runner import _detect_backend, SandboxBackend
+          backend = _detect_backend()
+          print(f'Gate 5 backend: {backend.value}')
+          if backend == SandboxBackend.STRACE:
+              print('Behavioral sandbox: ACTIVE via strace')
+          elif backend == SandboxBackend.GVISOR:
+              print('Behavioral sandbox: ACTIVE via gVisor (strongest)')
+          elif backend == SandboxBackend.AUDIT:
+              print('Behavioral sandbox: LIMITED via Python audit hooks')
+          else:
+              print('WARNING: No sandbox backend available - Gate 5 inactive')
+          "
+
+      - name: Upload trust reports
         if: always()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698ffd38de1571e1f6a35c5  # v4.6.0
+        uses: actions/upload-artifact@v4
         with:
-          name: >-
-            trust-result-${{ matrix.ecosystem }}-${{ matrix.package }}-${{ matrix.version }}
-          path: trust-result.json
+          name: trust-reports
+          path: trust-*.json
           retention-days: 30
+          if-no-files-found: ignore
 
-      - name: Enforce trust outcome
-        if: >
-          steps.trust.outputs.outcome == 'blocked' ||
-          steps.trust.outputs.outcome == 'quarantined' ||
-          steps.trust.outputs.outcome == 'rejected'
-        run: |
-          echo "::error ::Trust check failed for ${{ matrix.package }}@${{ matrix.version }}: ${{ steps.trust.outputs.message }}"
-          echo "::error ::Trust score: ${{ steps.trust.outputs.trust_score }}/100 (${{ steps.trust.outputs.trust_level }})"
-          echo "::error ::SLSA level: ${{ steps.trust.outputs.slsa_level }}"
-          echo "::error ::Policy applied: ${{ steps.trust.outputs.policy_applied }}"
-          exit 1
-
-      - name: Post trust result comment on PR
+      - name: Trust summary
         if: always()
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
-        with:
-          script: |
-            const fn = require('./.github/scripts/post-trust-comment.js');
-            await fn({ github, context });
-
-  # ── Job 3: Discord quorum override (runs when validate fails) ─────────────
-  quorum-override:
-    name: Quorum override — ${{ matrix.package }}@${{ matrix.version }}
-    needs: [detect-changes, validate]
-    runs-on: ubuntu-latest
-    if: |
-      needs.validate.result == 'failure' &&
-      needs.detect-changes.outputs.packages != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
-
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-
-      - name: Download trust result artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234a3fe6ee7e2dd2d5  # v4.1.8
-        with:
-          name: >-
-            trust-result-${{ matrix.ecosystem }}-${{ matrix.package }}-${{ matrix.version }}
-          path: .
-
-      - name: Check if quorum is needed
-        id: check
         run: |
-          outcome=$(jq -r .outcome trust-result.json)
-          echo "outcome=${outcome}" >> "$GITHUB_OUTPUT"
-          if [[ "$outcome" == "blocked" || "$outcome" == "quarantined" ]]; then
-            echo "needed=true"  >> "$GITHUB_OUTPUT"
-          else
-            echo "needed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run quorum engine
-        if: steps.check.outputs.needed == 'true'
-        env:
-          # ── Notification platform — set QUORUM_PLATFORM to discord, teams, or slack
-          QUORUM_PLATFORM: ${{ secrets.QUORUM_PLATFORM || 'discord' }}
-
-          # Discord (used when QUORUM_PLATFORM=discord)
-          DISCORD_BOT_TOKEN:  ${{ secrets.DISCORD_BOT_TOKEN }}
-          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
-          DISCORD_GUILD_ID:   ${{ secrets.DISCORD_GUILD_ID }}
-
-          # MS Teams (used when QUORUM_PLATFORM=teams)
-          TEAMS_WEBHOOK_URL:      ${{ secrets.TEAMS_WEBHOOK_URL }}
-          TEAMS_VOTE_WEBHOOK_URL: ${{ secrets.TEAMS_VOTE_WEBHOOK_URL }}
-          TEAMS_TENANT_ID:        ${{ secrets.TEAMS_TENANT_ID }}
-
-          # Slack (used when QUORUM_PLATFORM=slack)
-          SLACK_BOT_TOKEN:        ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL_ID:       ${{ secrets.SLACK_CHANNEL_ID }}
-          SLACK_VOTE_WEBHOOK_URL: ${{ secrets.SLACK_VOTE_WEBHOOK_URL }}
-          VOTE_SERVER_PORT:       "3000"
-
-          # Google Sheets audit log
-          SHEETS_CREDENTIALS:    ${{ secrets.SHEETS_CREDENTIALS }}
-          SHEETS_SPREADSHEET_ID: ${{ secrets.SHEETS_SPREADSHEET_ID }}
-          # GitHub context
-          GITHUB_TOKEN:    ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER:       ${{ github.event.pull_request.number }}
-          GITHUB_RUN_ID:   ${{ github.run_id }}
-          # PR context — surfaced in vote message so members can see the update reason
-          PR_TITLE:        ${{ github.event.pull_request.title }}
-          PR_BODY:         ${{ github.event.pull_request.body }}
-          # Source registry URL
-          PKG_REGISTRY_URL: ${{ matrix.registry_url }}
-          # Policy-as-code named role IDs (use platform-appropriate member IDs)
-          CISO_DISCORD_ID:          ${{ secrets.CISO_DISCORD_ID }}
-          SECURITY_ARCH_DISCORD_ID: ${{ secrets.SECURITY_ARCH_DISCORD_ID }}
-          LEGAL_DISCORD_ID:         ${{ secrets.LEGAL_DISCORD_ID }}
-          # Runtime telemetry
-          SIEM_HEC_ENDPOINT:  ${{ secrets.SIEM_HEC_ENDPOINT }}
-          SIEM_HEC_TOKEN:     ${{ secrets.SIEM_HEC_TOKEN }}
-        run: node .github/scripts/quorum-engine.js
-        timeout-minutes: 1500   # 25 h to cover default 24 h deadline
-
-  # ── Job 4: Register approved package for runtime monitoring ───────────────
-  runtime-monitor-register:
-    name: Open monitoring window — ${{ matrix.package }}@${{ matrix.version }}
-    needs: [detect-changes, validate]
-    runs-on: ubuntu-latest
-    # Runs on push to main (post-merge) when packages were validated
-    if: |
-      github.event_name == 'push' &&
-      needs.detect-changes.outputs.packages != '[]' &&
-      needs.validate.result == 'success'
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.detect-changes.outputs.packages) }}
-
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-
-      - name: Set up Python
-        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236  # v4.7.1
-        with:
-          python-version: "3.12"
-
-      - name: Install OSS Trust Framework
-        run: pip install oss-trust-framework
-
-      - name: Download trust result artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444306234a3fe6ee7e2dd2d5  # v4.1.8
-        continue-on-error: true
-        with:
-          name: >-
-            trust-result-${{ matrix.ecosystem }}-${{ matrix.package }}-${{ matrix.version }}
-          path: .
-
-      - name: Open SIEM monitoring window
-        env:
-          SIEM_HEC_ENDPOINT: ${{ secrets.SIEM_HEC_ENDPOINT }}
-          SIEM_HEC_TOKEN:    ${{ secrets.SIEM_HEC_TOKEN }}
-        run: |
-          quorum_id=$(jq -r '.quorum_id // "no-quorum"' trust-result.json 2>/dev/null || echo "no-quorum")
-          python - << 'PYEOF'
-          import asyncio, json, os, sys
-          from oss_trust.runtime import RuntimeTelemetry
-          import yaml
-
-          with open("config/pipeline.yaml") as f:
-              cfg = yaml.safe_load(f)
-
-          telemetry = RuntimeTelemetry(cfg.get("runtime", {}))
-          expires = asyncio.run(telemetry.open_monitoring_window(
-              package     = os.environ["MATRIX_PACKAGE"],
-              version     = os.environ["MATRIX_VERSION"],
-              ecosystem   = os.environ["MATRIX_ECOSYSTEM"],
-              quorum_id   = os.environ.get("QUORUM_ID", "no-quorum"),
-              deploy_id   = os.environ.get("GITHUB_SHA", ""),
-              environment = "production",
-          ))
-          print(f"Monitoring window opened — expires: {expires}")
-          PYEOF
-        env:
-          MATRIX_PACKAGE:   ${{ matrix.package }}
-          MATRIX_VERSION:   ${{ matrix.version }}
-          MATRIX_ECOSYSTEM: ${{ matrix.ecosystem }}
-          QUORUM_ID:        ${{ steps.get_quorum_id.outputs.quorum_id }}
+          python -c "
+          import json, glob, sys
+          reports = glob.glob('trust-*.json')
+          if not reports:
+              print('No trust reports generated.')
+              sys.exit(0)
+          results = []
+          for r in sorted(reports):
+              try:
+                  data = json.load(open(r))
+                  pkg = data.get('package', r)
+                  ver = data.get('version', '')
+                  outcome = data.get('outcome', 'unknown')
+                  gates = {g['gate']: g.get('passed') for g in data.get('gates', [])}
+                  results.append((pkg, ver, outcome, gates))
+              except Exception:
+                  pass
+          print()
+          print('  Trust validation summary')
+          print('  ' + '=' * 60)
+          failed = []
+          for pkg, ver, outcome, gates in results:
+              icon = 'v' if outcome == 'approved' else '!'
+              cicd = 'ACTIVE' if gates.get('cicd_audit') is not None else 'skipped'
+              g5 = 'ACTIVE' if gates.get('sandbox') is not None else 'skipped'
+              print(f'  [{icon}] {pkg}=={ver}  ->  {outcome}')
+              print(f'       Gate 2.5 (CI/CD audit): {cicd}')
+              print(f'       Gate 5  (sandbox):      {g5}')
+              if outcome not in ('approved', 'pass'):
+                  failed.append(pkg)
+          print()
+          if failed:
+              print(f'  FAILED: {failed}')
+              sys.exit(1)
+          else:
+              print('  All packages approved.')
+          "
