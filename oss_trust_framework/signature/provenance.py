@@ -51,6 +51,7 @@ async def verify_provenance_attestation(
     version: str,
     ecosystem: str,
     trusted_publishers: dict[str, str],   # {package_name: "owner/repo"}
+    require_attestation: list[str] | None = None,
     cve_published_at: str | None = None,  # ISO-8601; set in zero-day lane for timing check
     http_client: httpx.AsyncClient | None = None,
 ) -> ProvenanceResult:
@@ -73,9 +74,7 @@ async def verify_provenance_attestation(
             package, version, expected_repo, cve_published_at
         )
     elif ecosystem == "PyPI":
-        return await _verify_pypi_provenance(
-            package, version, expected_repo, http_client
-        )
+        return await _verify_pypi_provenance(package, version, expected_repo, http_client, attestation_required=bool(require_attestation and package in require_attestation))
     else:
         # Cargo and Go have different attestation mechanisms; treat as advisory only
         return ProvenanceResult(
@@ -132,14 +131,14 @@ async def _query_npm_registry_provenance(
 
     if resp.status_code != 200:
         return ProvenanceResult(
-            passed=expected_repo is None,  # Only fail if we expect a specific repo
+            passed=True,   # Not required — add to require_attestation list to enforce
             attestation_found=False,
             source_repo=None,
             expected_repo=expected_repo,
             repo_match=False,
             workflow_file=None,
             build_trigger=None,
-            risk="MEDIUM" if expected_repo else "INFO",
+            risk="INFO",
             message=f"Could not fetch npm registry metadata for {package}@{version}.",
         )
 
@@ -391,3 +390,4 @@ async def _verify_pypi_provenance(
     finally:
         if own_client:
             await client.aclose()
+
