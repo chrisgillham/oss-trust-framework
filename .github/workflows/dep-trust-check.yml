@@ -13,7 +13,6 @@ on:
       - "**/package.json"
 
 env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -43,7 +42,7 @@ jobs:
             --version 0.28.1 \
             --ecosystem PyPI \
             --github-repo encode/httpx \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-httpx.json
 
       - name: Validate cryptography
@@ -53,7 +52,7 @@ jobs:
             --version 48.0.0 \
             --ecosystem PyPI \
             --github-repo pyca/cryptography \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-cryptography.json
 
       - name: Validate pydantic
@@ -63,7 +62,7 @@ jobs:
             --version 2.13.4 \
             --ecosystem PyPI \
             --github-repo pydantic/pydantic \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-pydantic.json
 
       - name: Validate rich
@@ -73,7 +72,7 @@ jobs:
             --version 15.0.0 \
             --ecosystem PyPI \
             --github-repo Textualize/rich \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-rich.json
 
       - name: Validate click
@@ -83,7 +82,7 @@ jobs:
             --version 8.4.1 \
             --ecosystem PyPI \
             --github-repo pallets/click \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-click.json
 
       - name: Validate pyyaml
@@ -93,7 +92,7 @@ jobs:
             --version 6.0.3 \
             --ecosystem PyPI \
             --github-repo yaml/pyyaml \
-            --github-token "$GITHUB_TOKEN" \
+            --github-token "${{ secrets.GITHUB_TOKEN }}" \
             --output json | tee trust-pyyaml.json
 
       - name: Gate 5 sandbox backend status
@@ -134,26 +133,37 @@ jobs:
           for r in sorted(reports):
               try:
                   data = json.load(open(r))
-                  pkg = data.get('package', r)
-                  ver = data.get('version', '')
+                  pkg     = data.get('package', r)
+                  ver     = data.get('version', '')
                   outcome = data.get('outcome', 'unknown')
-                  gates = {g['gate']: g.get('passed') for g in data.get('gates', [])}
+                  gates   = {g['gate']: g.get('passed') for g in data.get('gates', [])}
                   results.append((pkg, ver, outcome, gates))
               except Exception:
                   pass
+
           print()
           print('  Trust validation summary')
           print('  ' + '=' * 60)
           failed = []
           for pkg, ver, outcome, gates in results:
               icon = 'v' if outcome == 'approved' else '!'
-              cicd = 'ACTIVE' if gates.get('cicd_audit') is not None else 'skipped'
-              g5 = 'ACTIVE' if gates.get('sandbox') is not None else 'skipped'
+
+              # Gate 2.5 is reported as three individual gates
+              gate25_gates = ['orphan_commits', 'workflow_permissions', 'pr_provenance']
+              gate25_results = [gates.get(g) for g in gate25_gates if g in gates]
+              if gate25_results:
+                  gate25_status = 'ACTIVE' if all(v is not None for v in gate25_results) else 'partial'
+              else:
+                  gate25_status = 'skipped (no github-repo)'
+
+              g5_status = 'ACTIVE' if gates.get('sandbox') is not None else 'skipped'
+
               print(f'  [{icon}] {pkg}=={ver}  ->  {outcome}')
-              print(f'       Gate 2.5 (CI/CD audit): {cicd}')
-              print(f'       Gate 5  (sandbox):      {g5}')
+              print(f'       Gate 2.5 (orphan/workflow/pr):  {gate25_status}')
+              print(f'       Gate 5   (behavioral sandbox):  {g5_status}')
               if outcome not in ('approved', 'pass'):
                   failed.append(pkg)
+
           print()
           if failed:
               print(f'  FAILED: {failed}')
