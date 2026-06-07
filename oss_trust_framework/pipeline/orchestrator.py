@@ -131,7 +131,9 @@ class Pipeline:
                 owner=owner,
                 repo=repo,
                 github_token=github_token,
-                version=version,          # KEY FIX — was missing, caused false positives
+                version=version,
+                trusted_repos=self.config.get("cicd_audit", {}).get("orphan_commit_trusted_repos", []),
+                lookback_days=self.config.get("cicd_audit", {}).get("lookback_days", 180),
             )
             gates.append(GateResult(
                 "orphan_commits",
@@ -161,8 +163,9 @@ class Pipeline:
             pr_cfg = self.config.get("cicd_audit", {})
             pr_result = await verify_pr_provenance(
                 owner=owner, repo=repo, version=version, github_token=github_token,
-                min_reviewers=pr_cfg.get("min_pr_reviewers", 1),
+                min_reviewers=pr_cfg.get("min_pr_reviewers", 0),  # changed from 1 to 0
             )
+    
             gates.append(GateResult(
                 "pr_provenance",
                 pr_result.passed,

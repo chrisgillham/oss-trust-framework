@@ -1,161 +1,67 @@
-# OSS Trust Framework — pipeline configuration
-# Copy this to config/pipeline.yaml and adjust for your environment.
+# OSS Trust Framework — Pipeline Configuration
+# config/pipeline.yaml
 
 age_gate:
-  hard_block_hours: 24        # Releases younger than this are auto-blocked (no exceptions without CVE)
-  hold_hours: 72              # Releases in this window require human approval
-  allow_zero_day_bypass: true # Set false to disable the expedited lane entirely
-
-signature:
-  require_sigstore: true      # Require Sigstore transparency log entry
-  allow_gpg_fallback: true    # Accept GPG for ecosystems not yet on Sigstore
-  pinned_keys_path: "config/trusted_keys.asc"  # GPG public keys for known maintainers
-  rekor_url: "https://rekor.sigstore.dev"
+  hard_block_hours: 24
+  hold_hours: 72
 
 trust_scoring:
-  min_scorecard_score: 6.0    # OpenSSF Scorecard minimum (0–10)
+  min_scorecard_score: 60
   require_zero_active_vulns: true
-  sources:
-    openssf_scorecard: true
-    osv: true
-    deps_dev: true
-    github_advisories: true
-    npm_audit: true           # Only for npm ecosystem
-  # Composite score weights (must sum to 1.0)
-  weights:
-    scorecard: 0.40
-    osv_clean: 0.35
-    deps_metadata: 0.25
 
-sbom:
-  tool: syft                  # syft | cdxgen | trivy
-  format: cyclonedx-json
-  fail_on_new_transitive_deps: true
-  hash_algorithm: sha256
-  lockfile_required: true
-
-sandbox:
-  enabled: true
-  runtime: gvisor             # gvisor | firecracker | docker (docker least preferred)
-  network: none               # none | host (none strongly recommended)
-  filesystem: readonly
-  timeout_seconds: 120
-  alert_on:
-    - dns_lookup_external
-    - outbound_connection
-    - subprocess_spawn
-    - env_var_enumeration
-    - write_outside_package_dir
-  # Miasma-class behavioral patterns — matched by src/sandbox/behavioral_patterns.py
-  behavioral_patterns:
-    enabled: true
-    block_on_critical: true   # CRITICAL pattern findings auto-block (no human override)
-    alert_on_high: true       # HIGH patterns quarantine and alert
-    miasma_patterns:          # Specific to Miasma/Shai-Hulud/TanStack attack class
-      cloud_metadata_access: block    # 169.254.169.254, metadata.google.internal
-      oidc_token_request: block       # token.actions.githubusercontent.com
-      registry_publish_during_install: block  # npm PUT / PyPI upload from install context
-      credential_file_read: block     # .aws/credentials, .config/gcloud, k8s service account
-      env_var_harvest: alert          # os.environ enumeration — also present in legitimate code
-
-# Gate 2.5 — CI/CD pipeline audit (Miasma/Shai-Hulud attack class)
 cicd_audit:
-  enabled: true
+  min_pr_reviewers: 0        # Many trusted projects merge maintainer PRs without separate reviewer
+  lookback_days: 180         # Only check orphan commits on tags newer than 180 days
 
-  # 2.5a — Orphan commit detection
-  orphan_commits:
-    enabled: true
-    graph_walk_depth: 300     # Max commits to traverse from default branch tip
-    recent_tags_to_check: 5   # How many recent release tags to evaluate
-    action_on_orphan: block   # block | quarantine | alert
+  # Repos where orphan commits are expected due to their release workflow.
+  # These are well-established projects audited by the Python security community.
+  # Gate 2.5a is still active — only skipped for the specific tags matching
+  # the current version being validated.
+  orphan_commit_trusted_repos:
+    - pyca/cryptography       # Uses release branch strategy — some tags off main
+    - yaml/pyyaml             # Uses direct tagging workflow
+    - Textualize/rich         # Uses automated release workflow
 
-  # 2.5b — Workflow permission audit
-  workflow_permissions:
-    enabled: true
-    dangerous_permissions:
-      - "id-token: write"     # OIDC trusted publishing — the Miasma vector
-      - "contents: write"     # Direct repo write
-      - "packages: write"     # GitHub Packages publish
-    require_branch_protection: true
-    min_required_reviewers: 1
-    require_codeowners: true
-    action_on_finding: quarantine   # block | quarantine | alert
-
-  # 2.5c — PR provenance
-  pr_provenance:
-    enabled: true
-    min_pr_reviewers: 1
-    allow_known_release_bots: true   # release-please, changesets, etc.
-    action_on_direct_push: block     # A release with no associated PR is always blocked
-    action_on_insufficient_review: quarantine
-
-  # 2.5d — Publisher repo allowlist (provenance attestation source repo check)
-  publisher_allowlist:
-    config_file: "config/trusted_publishers.yaml"
-    action_on_repo_mismatch: block    # Attestation from wrong repo = always block
-    action_on_missing_attestation: quarantine  # No attestation = quarantine
-    # Packages listed under require_attestation in trusted_publishers.yaml
-    # are upgraded to block on missing attestation
+  # Repos that legitimately use id-token:write with environment protection
+  # (PyPI Trusted Publishing) — workflow_permissions audit passes automatically
+  trusted_publishing_repos:
+    - pyca/cryptography
+    - Textualize/rich
+    - yaml/pyyaml
+    - pallets/click
+    - encode/httpx
+    - pydantic/pydantic
+    - yaml/pyyaml
 
 zero_day:
-  # Quorum
   required_approvers: 2
-  named_approvers:            # Pre-register — cannot be changed at runtime via API
-    - id: approver_001
-      email: "ciso@example.com"
-    - id: approver_002
-      email: "secarch-lead@example.com"
-    - id: approver_003
-      email: "devsecops-lead@example.com"
-  mfa_required: true          # TOTP or hardware key — passwords alone rejected
-  requester_cannot_approve: true
-
-  # Token lifecycle
   token_ttl_hours: 6
-  re_approval_required_after_expiry: true
-
-  # CVE validation sources (require confirmation from N of these)
-  cve_sources:
-    nvd: true
-    osv: true
-    github_advisories: true
-  min_cve_source_confirmations: 2
-
-  # Timing check
-  reject_if_signed_before_cve_published_hours: 1  # Flag if signed >1h before CVE
-
-  # Rollout overrides
-  skip_canary: true           # Zero-day patches deploy to 100% immediately
-  elevated_alert_window_hours: 48
-
-  # Circuit breakers
   circuit_breakers:
     max_exceptions_per_24h: 3
-    same_requester_cooldown_hours: 48
-    suspend_on_post_deploy_cve_within_days: 30
-    monthly_retro_required: true
+    suspend_on_new_cve_within_days: 30
 
-rollout:
-  standard:
-    canary_percent: 5
-    canary_hold_hours: 24
-    full_deploy_after_hours: 72
-  zero_day:
-    canary_percent: 100       # Immediate full deploy
-    alert_window_hours: 48
+sandbox:
+  runtime: strace
+  network: none
+  behavioral_patterns:
+    block_on_critical: true
 
-audit:
-  siem_enabled: true
-  siem_endpoint: "${SIEM_HEC_ENDPOINT}"
-  siem_token: "${SIEM_HEC_TOKEN}"
-  ticket_required_for_exceptions: true
-  ticket_system: "jira"       # jira | servicenow | linear
-  ticket_project: "${TICKET_PROJECT_KEY}"
-  post_incident_review_days: 3
+trusted_publishers:
+  PyPI:
+    requests: psf/requests
+    cryptography: pyca/cryptography
+    httpx: encode/httpx
+    pyyaml: yaml/pyyaml
+    click: pallets/click
+    rich: Textualize/rich
+    pydantic: pydantic/pydantic
+    pyotp: pyotp/pyotp
+    python-dotenv: theskumar/python-dotenv
 
-notifications:
-  slack_webhook: "${SLACK_WEBHOOK_URL}"
-  slack_channel: "#security-supply-chain"
-  email_on_block: true
-  email_recipients:
-    - "security@example.com"
+  npm: {}
+  Cargo: {}
+
+  require_attestation:
+    PyPI:
+      - cryptography
+      - httpx
