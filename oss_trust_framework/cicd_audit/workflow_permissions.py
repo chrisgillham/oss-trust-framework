@@ -136,15 +136,16 @@ async def audit_publishing_workflows(
                 has_environment_protection=wf_env_protected or environment_protection_found,
                 branch_protection_ok=branch_protection_ok,
                 codeowners_present=codeowners_present,
-            ))
-
-        if not branch_protection_ok and not workflow_environment_protected:
+            ))        # Only raise findings if we could actually read branch protection data.
+        # 403 on external repos means token lacks admin scope -- not a finding.
+        bp_readable = bp_resp.status_code == 200
+        if bp_readable and not branch_protection_ok and not workflow_environment_protected:
             findings.append(WorkflowFinding(
                 workflow_file="(repository)", permission="branch_protection",
                 severity="HIGH",
                 detail=(f"Default branch has fewer than {min_required_reviewers} "
                         f"required reviewer(s) and no environment protection rules.")))
-        if not codeowners_present and not workflow_environment_protected:
+        if bp_readable and not codeowners_present and not workflow_environment_protected:
             findings.append(WorkflowFinding(
                 workflow_file="(repository)", permission="codeowners",
                 severity="MEDIUM",
