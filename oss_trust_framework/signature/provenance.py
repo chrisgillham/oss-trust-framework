@@ -333,6 +333,7 @@ async def _verify_pypi_provenance(
     version: str,
     expected_repo: str | None,
     http_client: httpx.AsyncClient | None,
+    attestation_required: bool = False,
 ) -> ProvenanceResult:
     """
     Verify PyPI provenance attestation via the PyPI attestation API.
