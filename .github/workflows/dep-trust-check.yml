@@ -33,6 +33,9 @@ jobs:
       - name: Install strace (Gate 5 sandbox backend)
         run: sudo apt-get install -y strace
 
+      - name: Install syft (Gate 4 SBOM backend)
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
       - name: Install OSS Trust Framework
         run: |
           pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
