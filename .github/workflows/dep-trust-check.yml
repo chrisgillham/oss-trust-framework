@@ -15,6 +15,9 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+permissions:
+  contents: read        # checkout only — no write access needed
+
 jobs:
   trust-check:
     name: Gate 1-5 validation
