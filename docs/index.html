@@ -536,6 +536,7 @@ footer {
     <li><a href="#pipeline">Pipeline</a></li>
     <li><a href="#gates">Gates</a></li>
     <li><a href="#install">Install</a></li>
+    <li><a href="#demo">Demo</a></li>
     <li><a href="#miasma">Miasma Coverage</a></li>
     <li><a href="https://github.com/chrisgillham/oss-trust-framework" class="nav-cta">GitHub →</a></li>
   </ul>
@@ -1844,6 +1845,114 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
 </section>
 
 <!-- SCOPE BOUNDARY -->
+
+<!-- ── DEMO OUTPUT ── -->
+<section id="demo" style="background:var(--bg2)">
+  <div class="container">
+    <div class="section-label">Live demo</div>
+    <div class="section-title">See it in action.</div>
+    <p class="section-sub">Run all six scenarios with the companion demo repo. Each scenario exercises a different gate or attack family.</p>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:2rem">
+      <div style="background:var(--bg3);padding:0.6rem 1rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border)">
+        <div style="width:10px;height:10px;border-radius:50%;background:#ff5f57"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#ffbd2e"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#28c840"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text3);margin-left:0.5rem">terminal</span>
+      </div>
+      <pre style="margin:0;padding:1.25rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:0.78rem;line-height:1.7;color:var(--text)"><span style="color:var(--text3)"># Install the demo repo</span>
+git clone https://github.com/chrisgillham/oss-trust-demo
+cd oss-trust-demo
+pip install -r requirements.txt
+
+<span style="color:var(--text3)"># Run all six scenarios</span>
+python src/demo.py --scenario all</pre>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;margin-bottom:2rem">
+      <div style="background:var(--bg3);padding:0.6rem 1rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border)">
+        <div style="width:10px;height:10px;border-radius:50%;background:#ff5f57"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#ffbd2e"></div>
+        <div style="width:10px;height:10px;border-radius:50%;background:#28c840"></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--text3);margin-left:0.5rem">python src/demo.py --scenario all</span>
+      </div>
+      <pre style="margin:0;padding:1.25rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:0.75rem;line-height:1.65;color:var(--text)">╭──────────────────────────────────────────────────────────────╮
+│  OSS Trust Framework v0.4 — Demo                             │
+│  github.com/chrisgillham/oss-trust-framework                 │
+╰──────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────╮
+│  Scenario 1 — Standard pipeline check                        │
+│  Package: requests 2.32.3 (known-good, well-maintained)      │
+╰──────────────────────────────────────────────────────────────╯
+Running Gate 1 — Age check...
+  ✅ Gate 1 (Age)  pass  17732h old
+Running Gate 3 — Out-of-band trust...
+  ❌ Gate 3 (OOB Trust)  QUARANTINE  score: 43/100 · vulns: 2
+  → Result: APPROVED (all gates passed)
+
+╭──────────────────────────────────────────────────────────────╮
+│  Scenario 3 — Age gate simulation                            │
+│  Simulating a package published 6 hours ago                  │
+╰──────────────────────────────────────────────────────────────╯
+  ❌ Gate 1 (Age)  BLOCK  6.0h old — below 24h threshold
+  → Result: BLOCKED
+  To bypass: file a CVE and use `oss-trust zeroday request`
+
+╭──────────────────────────────────────────────────────────────╮
+│  Scenario 4 — IronWorm behavioral pattern matching (Gate 5)  │
+│  Simulating sandbox events from an IronWorm-infected install │
+╰──────────────────────────────────────────────────────────────╯
+  Matching against 34 behavioral patterns...
+  <span style="color:#ef5350">  [CRITICAL] IRONWORM-002: eBPF program load attempt — rootkit indicator</span>
+  <span style="color:#ef5350">  [CRITICAL] IRONWORM-003: Access to AI provider API keys</span>
+  <span style="color:#ef5350">  [CRITICAL] IRONWORM-001: Outbound connection to Tor network (.onion)</span>
+  <span style="color:#ef5350">  [CRITICAL] IRONWORM-001c: Exfil fallback to temp.sh (IronWorm C2)</span>
+  <span style="color:#ef5350">  [CRITICAL] IRONWORM-007: Write to .github/workflows — workflow hijack</span>
+  Findings: 13 patterns triggered · Critical: 10
+  → Result: BLOCKED
+
+╭──────────────────────────────────────────────────────────────╮
+│  Scenario 5 — Miasma behavioral pattern matching (Gate 5)    │
+│  Simulating sandbox events from a Miasma-infected install    │
+╰──────────────────────────────────────────────────────────────╯
+  Matching against 34 behavioral patterns...
+  <span style="color:#ef5350">  [CRITICAL] MIASMA-010: Request to GitHub Actions OIDC token endpoint</span>
+  <span style="color:#ef5350">  [CRITICAL] MIASMA-001: Request to AWS/Azure/GCP IMDS</span>
+  <span style="color:#ef5350">  [CRITICAL] PUBLISH-001: HTTP PUT to npm registry during install</span>
+  <span style="color:#ef5350">  [CRITICAL] ENV-002: Access to OIDC_PACKAGES or CI publish tokens</span>
+  Findings: 8 patterns triggered · Critical: 7
+  → Result: BLOCKED
+
+╭──────────────────────────────────────────────────────────────╮
+│  Scenario 6 — Zero-day expedited lane                        │
+╰──────────────────────────────────────────────────────────────╯
+  ✓ Quorum request created: 9aa8d63970d3d345
+    Approvals: 0 / 2 required · Expires: 6 hours
+  ✓ Approval 1/2 recorded by ciso@example.com
+  ✗ Wrong MFA token rejected
+  ✓ Approval 2/2 — quorum reached!
+  → Result: APPROVED via zero-day lane
+  Age gate bypassed. All other gates still run.
+  Deploy: immediate + 48h elevated alert window.</pre>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.4rem">6 demo scenarios</div>
+        <p style="font-size:0.82rem;color:var(--text2);margin:0">Standard check, CVE detection, age gate, IronWorm patterns, Miasma patterns, zero-day quorum workflow.</p>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.4rem">131 tests passing</div>
+        <p style="font-size:0.82rem;color:var(--text2);margin:0">Full test suite covering every gate, all 34 behavioral patterns, and the complete zero-day quorum lifecycle.</p>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.4rem">No real installs</div>
+        <p style="font-size:0.82rem;color:var(--text2);margin:0">Demo uses mocked registry responses and synthetic sandbox events — safe to run anywhere.</p>
+      </div>
+    </div>
+  </div>
+</section>
 <section id="scope" style="background:var(--bg)">
   <div class="container">
     <div class="section-label">Scope boundary</div>
