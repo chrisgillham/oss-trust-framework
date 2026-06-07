@@ -33,12 +33,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SBOMDecision(str, Enum):
@@ -166,7 +170,7 @@ def _run_syft(package: str, version: str, ecosystem: str) -> Optional[dict]:
         try:
             result = subprocess.run(
                 ["syft", f"dir:{install_dir}", "-o", "cyclonedx-json", "--quiet"],
-                capture_output=True, text=True, timeout=120
+                capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace"
             )
             if result.returncode != 0:
                 return None

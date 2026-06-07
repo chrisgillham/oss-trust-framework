@@ -1,0 +1,7 @@
+{
+  "annotated-types": "4ee152a296970dcc",
+  "pydantic": "43826c166ae203c1",
+  "pydantic-core": "92f20bc515cd3191",
+  "typing-extensions": "0dc8cd097ac00007",
+  "typing-inspection": "ff6fa017443dbc80"
+}
