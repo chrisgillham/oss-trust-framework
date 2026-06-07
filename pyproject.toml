@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oss-trust-framework"
-version = "0.4.0"
+version = "0.1.0"
 description = "Multi-gate open source supply chain trust validation pipeline with zero-day expedited lane"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -44,7 +44,7 @@ dev = [
 oss-trust = "oss_trust_framework.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["oss_trust_framework"]
+packages = ["src/oss_trust_framework"]
 
 [tool.ruff]
 line-length = 100

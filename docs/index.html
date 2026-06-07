@@ -547,7 +547,7 @@ footer {
   <div class="hero-grid"></div>
   <div class="hero-glow"></div>
   <div class="hero-content">
-    <div class="hero-badge">v0.4 — All Gates Operational · Gate 5 Active via strace</div>
+    <div class="hero-badge">v0.5 — All Gates Operational · Gate 5 Active via strace</div>
     <h1>Stop supply chain<br>attacks <em>before</em><br>they ship.</h1>
     <p class="hero-sub">A five-gate validation pipeline that intercepts malicious open source packages — including attacks that pass valid cryptographic signatures — before they reach your application.</p>
     <div class="hero-actions">
@@ -1022,7 +1022,7 @@ footer {
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.75rem">
         <div style="font-size:1.5rem;margin-bottom:0.75rem">🔧</div>
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;margin-bottom:0.5rem">Develop the framework</div>
-        <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">You want to add behavioral patterns, implement stub gates, or contribute to the codebase. Clone the repo and install in editable mode.</p>
+        <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">You want to add behavioral patterns, extend gate coverage, or contribute to the codebase. Clone the repo and install in editable mode.</p>
         <div style="display:flex;flex-direction:column;gap:0.4rem">
           <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> git clone + pip install -e</div>
           <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> Full dev dependencies</div>
@@ -1073,7 +1073,7 @@ pip install oss-trust-framework
 
 <span class="tok-cm"># Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.4.0</span>
+<span class="tok-cm"># oss-trust, version 0.5.0</span>
 
 <span class="tok-cm"># Check a package immediately</span>
 oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
@@ -1088,7 +1088,7 @@ pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
 
 <span class="tok-cm"># Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.4.0</span>
+<span class="tok-cm"># oss-trust, version 0.5.0</span>
 
 <span class="tok-cm"># Check a package</span>
 oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
@@ -1203,7 +1203,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
 
     <div style="border-bottom:1px solid var(--border);margin:2.5rem 0 2rem;padding-bottom:0.5rem">
       <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:var(--text2)">🔧 Develop the framework</div>
-      <div style="font-size:0.85rem;color:var(--text3);margin-top:0.25rem">Adding patterns, implementing stubs, contributing to the codebase</div>
+      <div style="font-size:0.85rem;color:var(--text3);margin-top:0.25rem">Adding patterns, extending coverage, contributing to the codebase</div>
     </div>
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1.5rem;font-size:0.85rem;color:var(--text2)">
@@ -1233,7 +1233,7 @@ pip install -e ".[dev]"
 
 <span class="tok-cm"># 4. Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.4.0</span>
+<span class="tok-cm"># oss-trust, version 0.5.0</span>
 
 <span class="tok-cm"># 5. Copy and configure environment</span>
 cp .env.example .env
@@ -1256,7 +1256,7 @@ pip install -e ".[dev]"
 
 <span class="tok-cm"># 4. Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.4.0</span>
+<span class="tok-cm"># oss-trust, version 0.5.0</span>
 
 <span class="tok-cm"># 5. Copy and configure environment</span>
 cp .env.example .env</pre></div>
@@ -1283,7 +1283,7 @@ pytest tests/test_gate5_behavioral.py::test_ironworm_001_tor_onion -v</pre></div
 
     <div id="dev-contrib" class="tab-panel">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;font-size:0.85rem;color:var(--text2);line-height:1.7">
-        <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--text);margin-bottom:0.75rem">Three stub gates are ready for implementation:</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--text);margin-bottom:0.75rem">All gates operational — contributions welcome:</div>
         <div style="margin-bottom:0.5rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/sbom/differ.py</code> — Gate 4 SBOM delta (syft/cdxgen + CycloneDX diff)</div>
         <div style="margin-bottom:0.5rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/sandbox/runner.py</code> — Gate 5 sandbox runner (gVisor + event feed to behavioral_patterns)</div>
         <div style="margin-bottom:1rem"><code style="background:var(--bg3);padding:0.1rem 0.4rem;border-radius:4px;color:var(--accent)">oss_trust_framework/signature/gpg.py</code> — Gate 2 GPG fallback for non-Sigstore ecosystems</div>
@@ -1763,7 +1763,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2.5b<br>2.5c, ZD</td>
           </tr>
           <tr style="background:rgba(74,158,255,0.03)">
-            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-03-Dependency-Chain-Abuse" target="_blank" style="color:var(--accent);text-decoration:none" title="Partially addressed — Gate 5 sandbox runner is a stub">CICD-SEC-3</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-03-Dependency-Chain-Abuse" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-3</a></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Dependency Chain Abuse <span style="font-size:0.68rem;background:rgba(74,158,255,0.15);color:var(--accent);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">PRIMARY THREAT</span></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">The core mission of the framework. Gates 0–5 validate every dependency update — name similarity, age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. Gate 5 behavioral sandbox active (strace on Linux CI; gVisor for strongest isolation).</td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 1–5</td>
@@ -1781,7 +1781,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gate 2.5b</td>
           </tr>
           <tr>
-            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-06-Insufficient-Credential-Hygiene" target="_blank" style="color:var(--accent);text-decoration:none" title="Partially addressed — Gate 5 sandbox runner is a stub">CICD-SEC-6</a></td>
+            <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:0.73rem;color:var(--accent);white-space:nowrap;vertical-align:top"><a href="https://owasp.org/www-project-top-10-ci-cd-security-risks/CICD-SEC-06-Insufficient-Credential-Hygiene" target="_blank" style="color:var(--accent);text-decoration:none">CICD-SEC-6</a></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.83rem;font-weight:500;vertical-align:top">Insufficient Credential Hygiene <span style="font-size:0.68rem;background:rgba(245,166,35,0.12);color:var(--amber);padding:0.15rem 0.45rem;border-radius:3px;margin-left:0.4rem;font-family:'JetBrains Mono',monospace">IronWorm class</span></td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.82rem;color:var(--text2);vertical-align:top">Gate 5 behavioral patterns cover credential harvesting (CRED-001–005, IRONWORM-003/004/006). Gate 2 catches stolen OIDC token misuse via sourceRepositoryURI mismatch. Gate 5 behavioral patterns active — credential harvesting (CRED-001–005, IRONWORM-003/004/006) detected at install time.</td>
             <td style="padding:0.85rem 1.1rem;border-bottom:1px solid var(--border);font-size:0.75rem;font-family:'JetBrains Mono',monospace;color:var(--text3);vertical-align:top;white-space:nowrap">Gates 2, 5</td>
