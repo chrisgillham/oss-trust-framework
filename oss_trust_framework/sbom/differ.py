@@ -106,26 +106,73 @@ def _syft_available() -> bool:
 def _run_syft(package: str, version: str, ecosystem: str) -> Optional[dict]:
     """
     Invoke syft to generate a CycloneDX JSON SBOM for the package.
+
+    Strategy: install the package into a temp directory, then run syft
+    against that directory using the dir: source scheme. This works
+    cross-platform (Linux CI and Windows) unlike the bare package specifier
+    approach which only works on Linux.
+
     Returns the parsed SBOM dict, or None on failure.
     """
-    # Map ecosystem names to syft package specifiers
-    ecosystem_map = {
-        "PyPI": f"{package}=={version}",
-        "npm": f"{package}@{version}",
-        "Cargo": f"{package}@{version}",
-    }
-    specifier = ecosystem_map.get(ecosystem, f"{package}=={version}")
+    import sys
 
-    try:
-        result = subprocess.run(
-            ["syft", specifier, "-o", "cyclonedx-json", "--quiet"],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode != 0:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        install_dir = Path(tmpdir) / "pkg"
+        install_dir.mkdir()
+
+        # Step 1: pip install into temp dir
+        if ecosystem == "PyPI":
+            install_cmd = [
+                sys.executable, "-m", "pip", "install",
+                f"{package}=={version}",
+                "--target", str(install_dir),
+                "--quiet", "--no-cache-dir",
+            ]
+        elif ecosystem == "npm":
+            install_cmd = [
+                "npm", "install", f"{package}@{version}",
+                "--prefix", str(install_dir),
+                "--no-save",
+            ]
+        else:
+            # Cargo and others: fall back to bare specifier (Linux only)
+            specifier = f"{package}@{version}"
+            try:
+                result = subprocess.run(
+                    ["syft", specifier, "-o", "cyclonedx-json", "--quiet"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode != 0:
+                    return None
+                return json.loads(result.stdout)
+            except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+                return None
+
+        try:
+            pip_result = subprocess.run(
+                install_cmd,
+                capture_output=True, text=True, timeout=120
+            )
+            if pip_result.returncode != 0:
+                logger.debug(
+                    "sbom pip install failed for %s==%s: %s",
+                    package, version, pip_result.stderr[:200]
+                )
+                return None
+        except (subprocess.TimeoutExpired, FileNotFoundError):
             return None
-        return json.loads(result.stdout)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
-        return None
+
+        # Step 2: syft scan the install directory
+        try:
+            result = subprocess.run(
+                ["syft", f"dir:{install_dir}", "-o", "cyclonedx-json", "--quiet"],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                return None
+            return json.loads(result.stdout)
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
+            return None
 
 
 # ---------------------------------------------------------------------------
