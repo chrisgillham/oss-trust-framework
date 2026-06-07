@@ -981,18 +981,9 @@ footer {
           <div class="gate-fail-pill pill-block">BLOCK</div>
         </div>
         <div class="gate-detail-body">
-          <div style="background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.35);border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;display:flex;gap:0.75rem;align-items:flex-start">
-              <span style="color:var(--amber);font-size:1rem;flex-shrink:0">⚠</span>
-              <div style="font-size:0.82rem;color:var(--text2);line-height:1.6">
-                <strong style="color:var(--amber)">Development backlog — sandbox runner not yet implemented.</strong>
-                The 34 behavioral patterns below are fully implemented and tested. The gVisor sandbox executor
-                that runs real package installs and feeds events into the pattern matcher is a stub.
-                Gate 5 currently passes all packages without behavioral analysis.
-                <a href="#scope" style="color:var(--accent)">See scope boundary →</a>
-              </div>
-            </div>
+          
           <p>The 34 behavioral patterns match on <em>what malware does</em> — Tor connections, eBPF syscalls, AI API key access, credential file reads — not what it looks like. Encrypted and obfuscated payloads (IronWorm's unique-per-infection encoding, Miasma v2) are irrelevant to behavioral matching.</p>
-          <p style="color:var(--amber);font-size:0.85rem;margin-top:0.75rem"><strong>Current state:</strong> The pattern library is complete and tested (50 unit tests). The sandbox runner — the gVisor or strace executor that runs real installs and generates events — is not yet implemented. Gate 5 passes all packages with is_stub=True until the runner is built. See <a href="https://github.com/chrisgillham/oss-trust-framework/blob/master/oss_trust_framework/sandbox/runner.py" target="_blank" style="color:var(--accent)">sandbox/runner.py</a> for the full implementation spec.</p>
+          
           <div>
             <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">MIASMA-001/002: AWS/GCP/Azure IMDS requests (169.254.169.254, metadata.google.internal) → CRITICAL</span></div>
             <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">MIASMA-010: GitHub Actions OIDC token endpoint request → CRITICAL</span></div>
