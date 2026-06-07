@@ -1,9 +1,9 @@
 """
-Gate 2.5b - GitHub Actions workflow permission auditor.
+Gate 2.5b -- GitHub Actions workflow permission auditor.
 
-Fix 2026-06-06: environment protection rules on the publish job environment
-are now treated as a sufficient compensating control for id-token:write.
-Libraries like cryptography, rich, pyyaml use PyPI Trusted Publishing with
+Fix: environment protection rules on the publish job environment are now
+credited as a compensating control for id-token:write. Libraries like
+cryptography, rich, pyyaml, click use PyPI Trusted Publishing with
 id-token:write scoped to a protected environment -- this is correct and
 should NOT be flagged.
 """
@@ -17,17 +17,14 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-DANGEROUS_PERMISSIONS: set[str] = {"id-token", "contents", "packages"}
+DANGEROUS_PERMISSIONS = {"id-token", "contents", "packages"}
 
-PUBLISH_INDICATORS: set[str] = {
+PUBLISH_INDICATORS = {
     "npm publish", "pip publish", "cargo publish", "twine upload",
     "actions/attest-build-provenance", "pypa/gh-action-pypi-publish",
     "JS-DevTools/npm-publish", "changesets/action",
 }
 
-# When a publish job references one of these environment names AND the
-# environment has protection rules, id-token:write is correct Trusted
-# Publishing -- not a security finding.
 KNOWN_PUBLISH_ENVIRONMENTS = {
     "pypi", "publish", "release", "npm", "prod", "production",
     "publish-pypi", "publish-npm", "deploy", "release-pypi",
@@ -78,13 +75,14 @@ async def audit_publishing_workflows(
             f"https://api.github.com/repos/{owner}/{repo}/contents/.github/workflows"
         )
         if wf_list_resp.status_code == 404:
-            return WorkflowAuditResult(passed=True, message="No .github/workflows directory.")
+            return WorkflowAuditResult(passed=True,
+                message="No .github/workflows directory.")
         if wf_list_resp.status_code == 403:
             return WorkflowAuditResult(passed=True,
                 message=f"Gate 2.5b skipped -- 403 for {owner}/{repo}.")
         wf_list_resp.raise_for_status()
         workflow_files = [f for f in wf_list_resp.json()
-                          if f["name"].endswith((".yml", ".yaml"))]
+                         if f["name"].endswith((".yml", ".yaml"))]
 
         repo_resp = await client.get(f"https://api.github.com/repos/{owner}/{repo}")
         repo_resp.raise_for_status()
@@ -133,20 +131,19 @@ async def audit_publishing_workflows(
             )
             if wf_env_protected:
                 workflow_environment_protected = True
-            wf_findings = _analyse_workflow(
+            findings.extend(_analyse_workflow(
                 filename=wf_file["name"], raw_yaml=raw,
                 has_environment_protection=wf_env_protected or environment_protection_found,
                 branch_protection_ok=branch_protection_ok,
                 codeowners_present=codeowners_present,
-            )
-            findings.extend(wf_findings)
+            ))
 
         if not branch_protection_ok and not workflow_environment_protected:
             findings.append(WorkflowFinding(
                 workflow_file="(repository)", permission="branch_protection",
                 severity="HIGH",
-                detail=f"Default branch has fewer than {min_required_reviewers} "
-                       f"required reviewer(s) and no environment protection rules."))
+                detail=(f"Default branch has fewer than {min_required_reviewers} "
+                        f"required reviewer(s) and no environment protection rules.")))
         if not codeowners_present and not workflow_environment_protected:
             findings.append(WorkflowFinding(
                 workflow_file="(repository)", permission="codeowners",
@@ -157,7 +154,8 @@ async def audit_publishing_workflows(
         return WorkflowAuditResult(passed=True,
             message=f"Gate 2.5b skipped -- HTTP {exc.response.status_code} for {owner}/{repo}.")
     except Exception as exc:
-        return WorkflowAuditResult(passed=True, message=f"Gate 2.5b skipped -- error: {exc}")
+        return WorkflowAuditResult(passed=True,
+            message=f"Gate 2.5b skipped -- error: {exc}")
     finally:
         if own_client:
             await client.aclose()
@@ -213,8 +211,7 @@ def _analyse_workflow(
         return findings
     if not isinstance(wf, dict):
         return findings
-    raw_lower = raw_yaml.lower()
-    if not any(ind in raw_lower for ind in PUBLISH_INDICATORS):
+    if not any(ind in raw_yaml.lower() for ind in PUBLISH_INDICATORS):
         return findings
     declared: dict[str, str] = {}
     top_perms = wf.get("permissions", {})
@@ -233,6 +230,7 @@ def _analyse_workflow(
     for perm, value in declared.items():
         if perm not in DANGEROUS_PERMISSIONS or str(value).lower() != "write":
             continue
+        # id-token:write + environment protection = Trusted Publishing (correct, skip)
         if has_environment_protection and perm == "id-token":
             logger.debug("workflow_audit: skipping id-token:write -- env protection present")
             continue
@@ -244,7 +242,7 @@ def _analyse_workflow(
             severity = "CRITICAL" if perm == "id-token" else "HIGH"
         findings.append(WorkflowFinding(
             workflow_file=filename, permission=f"{perm}: write", severity=severity,
-            detail=f"Workflow has publish capability and {perm}: write "
-                   + ("without compensating controls." if severity == "CRITICAL"
-                      else "-- compensating control present.")))
+            detail=(f"Workflow has {perm}: write "
+                    + ("without compensating controls." if severity == "CRITICAL"
+                       else "-- compensating control present."))))
     return findings

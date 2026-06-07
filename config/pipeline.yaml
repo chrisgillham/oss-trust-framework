@@ -1,5 +1,4 @@
-# OSS Trust Framework — Pipeline Configuration
-# config/pipeline.yaml
+# OSS Trust Framework -- Pipeline Configuration
 
 age_gate:
   hard_block_hours: 24
@@ -10,28 +9,16 @@ trust_scoring:
   require_zero_active_vulns: true
 
 cicd_audit:
-  min_pr_reviewers: 0        # Many trusted projects merge maintainer PRs without separate reviewer
-  lookback_days: 180         # Only check orphan commits on tags newer than 180 days
-
-  # Repos where orphan commits are expected due to their release workflow.
-  # These are well-established projects audited by the Python security community.
-  # Gate 2.5a is still active — only skipped for the specific tags matching
-  # the current version being validated.
+  min_pr_reviewers: 0
+  lookback_days: 180
   orphan_commit_trusted_repos:
-    - pyca/cryptography       # Uses release branch strategy — some tags off main
-    - yaml/pyyaml             # Uses direct tagging workflow
-    - Textualize/rich         # Uses automated release workflow
-
-  # Repos that legitimately use id-token:write with environment protection
-  # (PyPI Trusted Publishing) — workflow_permissions audit passes automatically
-  trusted_publishing_repos:
     - pyca/cryptography
+    - yaml/pyyaml
     - Textualize/rich
-    - yaml/pyyaml
-    - pallets/click
-    - encode/httpx
     - pydantic/pydantic
-    - yaml/pyyaml
+    - encode/httpx
+    - pallets/click
+    - psf/requests
 
 zero_day:
   required_approvers: 2
