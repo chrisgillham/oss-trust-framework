@@ -198,16 +198,18 @@ There are two paths depending on what you want to do:
 You want to protect an existing repo from supply chain attacks. Do **not** clone the framework repo — just install it and add the GitHub Actions workflow.
 
 ```bash
-# Option A — from GitHub source (works right now)
-pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
-
-# Option B — from PyPI (once published)
+# Install from PyPI
 pip install oss-trust-framework
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.3.0
+# oss-trust, version 0.5.0
 ```
+
+> **Installing from source** (latest dev build):
+> ```bash
+> pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+> ```
 
 Then add the workflow to your repo (see [CI/CD Integration](#cicd-integration) below) and populate `config/trusted_publishers.yaml` with your critical packages.
 
@@ -246,7 +248,7 @@ pytest tests/ -v --cov=oss_trust_framework --cov-report=term-missing
 
 ## Quickstart
 
-> **Installing the framework in your own project?** Use `pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"` — do not clone this repo. See [Installation](#installation) above.
+> **Installing the framework in your own project?** Use `pip install oss-trust-framework` — do not clone this repo. See [Installation](#installation) above.
 
 ```bash
 # Run the full pipeline against a single package

@@ -1014,7 +1014,7 @@ footer {
         <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;margin-bottom:0.5rem">Use in your project</div>
         <p style="font-size:0.85rem;color:var(--text2);margin-bottom:1rem;line-height:1.6">You want to protect an existing repo from supply chain attacks. Install the framework and add a GitHub Actions workflow — no cloning, no editable installs.</p>
         <div style="display:flex;flex-direction:column;gap:0.4rem">
-          <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> pip install or GitHub source</div>
+          <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> pip install from PyPI</div>
           <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> Drop-in GitHub Actions workflow</div>
           <div style="font-size:0.8rem;color:var(--green);display:flex;align-items:center;gap:0.5rem"><span>✓</span> oss-trust check from CLI</div>
         </div>
@@ -1055,7 +1055,7 @@ footer {
     </div>
 
     <div class="install-tabs">
-      <button class="tab-btn active" onclick="showTab('pip')">pip install</button>
+      <button class="tab-btn active" onclick="showTab('pip')">pip install (PyPI)</button>
       <button class="tab-btn" onclick="showTab('github-source')">GitHub source</button>
       <button class="tab-btn" onclick="showTab('actions')">GitHub Actions</button>
       <button class="tab-btn" onclick="showTab('check')">oss-trust check</button>
@@ -1082,9 +1082,12 @@ oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --g
 
     <div id="github-source" class="tab-panel">
       <div class="code-block">
-        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — install from GitHub (works right now)</div></div>
-        <div class="code-body"><pre><span class="tok-cm"># Install directly from GitHub into your existing project venv</span>
-pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — install from GitHub source (latest dev)</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># Install from PyPI (recommended)</span>
+pip install oss-trust-framework
+
+<span class="tok-cm"># Or install latest dev build from GitHub source</span>
+<span class="tok-cm"># pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"</span>
 
 <span class="tok-cm"># Verify</span>
 oss-trust --version
@@ -1123,7 +1126,7 @@ oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --g
 
       - <span class="tok-kw">name</span>: Install OSS Trust Framework
         <span class="tok-kw">run</span>: |
-          pip install <span class="tok-str">"git+https://github.com/chrisgillham/oss-trust-framework.git"</span>
+          pip install <span class="tok-str">oss-trust-framework</span>
 
       - <span class="tok-kw">name</span>: Validate dependency updates
         <span class="tok-kw">env</span>:
