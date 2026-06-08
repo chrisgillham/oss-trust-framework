@@ -203,7 +203,7 @@ pip install oss-trust-framework
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.5.0
+# oss-trust, version 0.5.1
 ```
 
 > **Installing from source** (latest dev build):

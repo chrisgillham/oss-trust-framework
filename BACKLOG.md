@@ -1,6 +1,6 @@
 # OSS Trust Framework — Development Backlog
 
-> **Current version:** v0.5.0 — All gates fully operational.
+> **Current version:** v0.5.1 — All gates fully operational.
 > This document tracks planned improvements, known gaps, and contributor opportunities.
 > See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
 
@@ -108,7 +108,7 @@ See [docs/index.html#scope](https://chrisgillham.github.io/oss-trust-framework/#
 
 ## OWASP CI/CD Top 10 coverage
 
-All 10 risks fully addressed as of v0.5.0.
+All 10 risks fully addressed as of v0.5.1.
 
 | Risk | Gate(s) |
 |---|---|
@@ -125,4 +125,4 @@ All 10 risks fully addressed as of v0.5.0.
 
 ---
 
-*Last updated: 2026-06-07 · v0.5.0*
+*Last updated: 2026-06-07 · v0.5.1*

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oss-trust-framework"
-version = "0.5.0"
+version = "0.5.1"
 description = "Multi-gate open source supply chain trust validation pipeline with zero-day expedited lane"
 readme = "README.md"
 license = { file = "LICENSE" }
