@@ -1,5 +1,9 @@
 # OSS Trust Framework
 
+[![PyPI](https://img.shields.io/pypi/v/oss-trust-framework?color=blue&label=PyPI)](https://pypi.org/project/oss-trust-framework/)
+[![Python](https://img.shields.io/pypi/pyversions/oss-trust-framework)](https://pypi.org/project/oss-trust-framework/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **Open Source Supply Chain Trust Validation Pipeline**
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
