@@ -39,7 +39,7 @@ def main() -> None:
 @click.option(
     "--ecosystem",
     required=True,
-    type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven"], case_sensitive=True),
+    type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven", "NuGet", "RubyGems"], case_sensitive=True),
 )
 @click.option("--github-repo", default=None, help="owner/repo for Gate 2 provenance + Gate 2.5 CI/CD audit")
 @click.option(
@@ -111,7 +111,7 @@ def zeroday() -> None:
 @click.option("--cve", required=True, help="CVE ID (e.g. CVE-2024-12345)")
 @click.option("--package", required=True)
 @click.option("--version", required=True)
-@click.option("--ecosystem", required=True, type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven"]))
+@click.option("--ecosystem", required=True, type=click.Choice(["PyPI", "npm", "Cargo", "Go", "Maven", "NuGet", "RubyGems"]))
 @click.option("--requester", required=True, help="Email of the person requesting the exception")
 @click.option("--config", default="config/pipeline.yaml", show_default=True)
 def zd_request(cve: str, package: str, version: str, ecosystem: str, requester: str, config: str) -> None:

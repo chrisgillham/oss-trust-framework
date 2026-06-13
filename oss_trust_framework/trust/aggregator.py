@@ -174,7 +174,15 @@ async def _fetch_osv_vulns(
 async def _fetch_deps_dev(
     client: httpx.AsyncClient, package: str, version: str, ecosystem: str
 ) -> dict:
-    eco_map = {"PyPI": "PyPI", "npm": "npm", "Cargo": "Go", "Go": "Go", "Maven": "Maven"}
+    eco_map = {
+        "PyPI":     "PyPI",
+        "npm":      "npm",
+        "Cargo":    "cargo",
+        "Go":       "go",
+        "Maven":    "maven",
+        "NuGet":    "nuget",
+        "RubyGems": "rubygems",
+    }
     eco = eco_map.get(ecosystem, ecosystem)
     url = DEPS_DEV_API.format(ecosystem=eco, package=package, version=version)
     resp = await client.get(url)

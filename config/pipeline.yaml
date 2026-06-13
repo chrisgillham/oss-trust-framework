@@ -34,6 +34,9 @@ sandbox:
     block_on_critical: true
 
 trusted_publishers:
+  # Full allowlist is maintained in config/trusted_publishers.yaml
+  # The entries below are the minimal set embedded in pipeline config for
+  # fast local validation without loading the full allowlist file.
   PyPI:
     requests: psf/requests
     cryptography: pyca/cryptography
@@ -45,10 +48,50 @@ trusted_publishers:
     pyotp: pyotp/pyotp
     python-dotenv: theskumar/python-dotenv
 
-  npm: {}
-  Cargo: {}
+  npm:
+    axios: axios/axios
+    jsonwebtoken: auth0/node-jsonwebtoken
+    jose: panva/jose
+    dotenv: motdotla/dotenv
+    express: expressjs/express
+    typescript: microsoft/TypeScript
+    esbuild: evanw/esbuild
+    vite: vitejs/vite
+    webpack: webpack/webpack
+    # Arweave ecosystem (ref: IronWorm June 2026)
+    weavedb-sdk: weavedb/weavedb
+    arweave: ArweaveTeam/arweave-js
+
+  Cargo:
+    serde: serde-rs/serde
+    tokio: tokio-rs/tokio
+    reqwest: seanmonstar/reqwest
+    rustls: rustls/rustls
+    ring: briansmith/ring
+
+  Go:
+    "golang.org/x/crypto": golang/crypto
+    "golang.org/x/net": golang/net
+
+  Maven: {}
+  NuGet: {}
+  RubyGems: {}
 
   require_attestation:
     PyPI:
       - cryptography
       - httpx
+      - requests
+    npm:
+      - axios
+      - jsonwebtoken
+      - jose
+      - typescript
+      - esbuild
+      - vite
+    Cargo:
+      - serde
+      - tokio
+      - reqwest
+      - rustls
+      - ring

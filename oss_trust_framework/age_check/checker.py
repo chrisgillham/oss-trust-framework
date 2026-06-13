@@ -133,6 +133,12 @@ async def _fetch_release_time(
         return await _cargo_release_time(client, package, version)
     elif ecosystem == "Go":
         return await _go_release_time(client, package, version)
+    elif ecosystem == "Maven":
+        return await _maven_release_time(client, package, version)
+    elif ecosystem == "NuGet":
+        return await _nuget_release_time(client, package, version)
+    elif ecosystem == "RubyGems":
+        return await _rubygems_release_time(client, package, version)
     else:
         raise ValueError(f"Unsupported ecosystem: {ecosystem!r}")
 
@@ -195,3 +201,70 @@ async def _go_release_time(
     if not time_str:
         raise ValueError(f"No Time field for {package}@{version} from Go proxy")
     return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+
+
+async def _maven_release_time(
+    client: httpx.AsyncClient, package: str, version: str
+) -> datetime:
+    """
+    Look up Maven Central release time via the Sonatype REST API.
+    package format: "groupId:artifactId" (e.g. "org.apache.commons:commons-lang3")
+    """
+    if ":" not in package:
+        raise ValueError(
+            f"Maven package must be 'groupId:artifactId', got: {package!r}"
+        )
+    group_id, artifact_id = package.split(":", 1)
+    url = (
+        f"https://search.maven.org/solrsearch/select"
+        f"?q=g:{group_id}+AND+a:{artifact_id}+AND+v:{version}&rows=1&wt=json"
+    )
+    resp = await client.get(url, headers={"User-Agent": "oss-trust-framework/0.1"})
+    resp.raise_for_status()
+    data = resp.json()
+    docs = data.get("response", {}).get("docs", [])
+    if not docs:
+        raise ValueError(f"No Maven Central record for {package}:{version}")
+    ts_ms = docs[0].get("timestamp")
+    if not ts_ms:
+        raise ValueError(f"No timestamp in Maven Central response for {package}:{version}")
+    return datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+
+
+async def _nuget_release_time(
+    client: httpx.AsyncClient, package: str, version: str
+) -> datetime:
+    """
+    Look up NuGet package publication time via the NuGet Registration API.
+    https://api.nuget.org/v3/registration5-semver1/{id}/{version}.json
+    """
+    pkg_lower = package.lower()
+    url = f"https://api.nuget.org/v3/registration5-semver1/{pkg_lower}/{version}.json"
+    resp = await client.get(url, headers={"User-Agent": "oss-trust-framework/0.1"})
+    if resp.status_code == 404:
+        raise ValueError(f"NuGet package {package}@{version} not found")
+    resp.raise_for_status()
+    data = resp.json()
+    published = data.get("catalogEntry", {}).get("published")
+    if not published:
+        raise ValueError(f"No published date in NuGet response for {package}@{version}")
+    return datetime.fromisoformat(published.replace("Z", "+00:00"))
+
+
+async def _rubygems_release_time(
+    client: httpx.AsyncClient, package: str, version: str
+) -> datetime:
+    """
+    Look up RubyGems publication time via the RubyGems API.
+    https://rubygems.org/api/v2/rubygems/{gem}/versions/{version}.json
+    """
+    url = f"https://rubygems.org/api/v2/rubygems/{package}/versions/{version}.json"
+    resp = await client.get(url, headers={"User-Agent": "oss-trust-framework/0.1"})
+    if resp.status_code == 404:
+        raise ValueError(f"RubyGems package {package} v{version} not found")
+    resp.raise_for_status()
+    data = resp.json()
+    created_at = data.get("created_at")
+    if not created_at:
+        raise ValueError(f"No created_at in RubyGems response for {package} v{version}")
+    return datetime.fromisoformat(created_at.replace("Z", "+00:00"))

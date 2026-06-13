@@ -11,102 +11,241 @@
 #     "package-name": "owner/repo"
 #
 # How to add a new package:
-#   pip:  curl -s https://pypi.org/pypi/<pkg>/json | python3 -c "import sys,json; d=json.load(sys.stdin); print((d['info'].get('project_urls') or {}))"
-#   npm:  npm view <pkg> repository.url
+#   pypi:  curl -s https://pypi.org/pypi/<pkg>/json | python3 -c "import sys,json; d=json.load(sys.stdin); print((d['info'].get('project_urls') or {}))"
+#   npm:   npm view <pkg> repository.url
+#   cargo: cargo search <crate>  (then verify at crates.io/crates/<crate>)
+#   go:    module path IS the canonical repo path (github.com/owner/repo)
+#   maven: groupId:artifactId — verify at search.maven.org
+#   nuget: nuget.org/packages/<id>
+#   gems:  rubygems.org/gems/<name>
 #
 # Priority order for what to add:
-#   1. Packages with network access (httpx, requests, urllib3)
-#   2. Packages that handle crypto or auth (cryptography, pyotp)
-#   3. Packages that read/write files or env vars (python-dotenv, pyyaml)
-#   4. All direct dependencies in pyproject.toml / package.json
+#   1. Packages with network access
+#   2. Packages that handle crypto or auth
+#   3. Packages that read/write files or env vars
+#   4. All direct dependencies in pyproject.toml / package.json / Cargo.toml etc.
 #   5. High-value transitive dependencies
 #
-# Last verified: 2026-06-03
+# Last verified: 2026-06-13
 
 # ---------------------------------------------------------------------------
-# OSS Trust Framework direct dependencies (pyproject.toml)
+# PyPI (Python)
 # ---------------------------------------------------------------------------
 PyPI:
 
   # --- Network / HTTP ---
   "httpx": "encode/httpx"               # Async HTTP client — network access
+  "requests": "psf/requests"
+  "urllib3": "urllib3/urllib3"
+  "aiohttp": "aio-libs/aiohttp"
 
   # --- Cryptography / Auth ---
   "cryptography": "pyca/cryptography"   # Core crypto primitives — CRITICAL
   "pyotp": "pyotp/pyotp"               # TOTP/MFA — used in zero-day quorum
+  "PyJWT": "jpadilla/pyjwt"
+  "paramiko": "paramiko/paramiko"
+  "bcrypt": "pyca/bcrypt"
 
   # --- Config / Environment ---
-  "python-dotenv": "theskumar/python-dotenv"  # Reads .env files — env var access
-  "pyyaml": "yaml/pyyaml"              # Parses YAML config — file access
+  "python-dotenv": "theskumar/python-dotenv"
+  "pyyaml": "yaml/pyyaml"
+  "toml": "uiri/toml"
 
   # --- CLI / Output ---
-  "click": "pallets/click"             # CLI framework
-  "rich": "Textualize/rich"            # Terminal output
+  "click": "pallets/click"
+  "rich": "Textualize/rich"
+  "typer": "tiangolo/typer"
 
   # --- Data validation ---
-  "pydantic": "pydantic/pydantic"      # Data models and validation
+  "pydantic": "pydantic/pydantic"
 
   # --- Dev / Test dependencies ---
   "pytest": "pytest-dev/pytest"
   "pytest-asyncio": "pytest-dev/pytest-asyncio"
   "pytest-cov": "pytest-dev/pytest-cov"
-  "respx": "lundberg/respx"            # HTTP mocking for tests
-  "ruff": "astral-sh/ruff"             # Linter
-  "mypy": "python/mypy"                # Type checker
+  "respx": "lundberg/respx"
+  "ruff": "astral-sh/ruff"
+  "mypy": "python/mypy"
+
+  # --- High-value ecosystem packages ---
+  "flask": "pallets/flask"
+  "django": "django/django"
+  "fastapi": "tiangolo/fastapi"
+  "sqlalchemy": "sqlalchemy/sqlalchemy"
+  "celery": "celery/celery"
+  "boto3": "boto/boto3"
+  "google-cloud-storage": "googleapis/python-storage"
+  "azure-storage-blob": "Azure/azure-sdk-for-python"
 
 # ---------------------------------------------------------------------------
-# Common high-value PyPI packages — add from your own dependency graph
-# ---------------------------------------------------------------------------
-
-  # Uncomment and add as needed:
-  # "requests": "psf/requests"
-  # "boto3": "boto/boto3"
-  # "google-cloud-storage": "googleapis/python-storage"
-  # "azure-identity": "Azure/azure-sdk-for-python"
-  # "django": "django/django"
-  # "flask": "pallets/flask"
-  # "fastapi": "tiangolo/fastapi"
-  # "sqlalchemy": "sqlalchemy/sqlalchemy"
-  # "paramiko": "paramiko/paramiko"
-  # "ansible": "ansible/ansible"
-
-# ---------------------------------------------------------------------------
-# npm packages — populate from your package.json if applicable
+# npm (Node.js / JavaScript / TypeScript)
+# Verified via: npm view <pkg> repository.url
 # ---------------------------------------------------------------------------
 npm:
+  # --- HTTP / networking ---
+  "axios": "axios/axios"
+  "node-fetch": "node-fetch/node-fetch"
+  "got": "sindresorhus/got"
+  "undici": "nodejs/undici"
 
-  # Common high-value packages — uncomment what applies to your project:
-  # "express": "expressjs/express"
-  # "axios": "axios/axios"
-  # "lodash": "lodash/lodash"
-  # "react": "facebook/react"
-  # "typescript": "microsoft/TypeScript"
-  # "webpack": "webpack/webpack"
-  # "eslint": "eslint/eslint"
-  # "jest": "jestjs/jest"
-  # "next": "vercel/next.js"
+  # --- Auth / crypto ---
+  "jsonwebtoken": "auth0/node-jsonwebtoken"
+  "bcrypt": "kelektiv/node.bcrypt.js"
+  "crypto-js": "brix/crypto-js"
+  "jose": "panva/jose"
 
-  # Red Hat / Insights packages (Miasma attack targets — add if you use these):
-  # "@redhat-cloud-services/frontend-components": "RedHatInsights/frontend-components"
-  # "@redhat-cloud-services/frontend-components-utilities": "RedHatInsights/frontend-components"
+  # --- Config / env ---
+  "dotenv": "motdotla/dotenv"
+  "js-yaml": "nodeca/js-yaml"
+
+  # --- Build tooling (high-value CI targets — ref: IronWorm, Shai-Hulud) ---
+  "typescript": "microsoft/TypeScript"
+  "esbuild": "evanw/esbuild"
+  "vite": "vitejs/vite"
+  "webpack": "webpack/webpack"
+  "rollup": "rollup/rollup"
+  "turbo": "vercel/turbo"
+  "@babel/core": "babel/babel"
+
+  # --- Package managers / publishing ---
+  "npm": "npm/cli"
+  "pnpm": "pnpm/pnpm"
+  "yarn": "yarnpkg/berry"
+
+  # --- Frameworks ---
+  "express": "expressjs/express"
+  "fastify": "fastify/fastify"
+  "next": "vercel/next.js"
+  "react": "facebook/react"
+  "vue": "vuejs/core"
+
+  # --- Testing ---
+  "jest": "jestjs/jest"
+  "vitest": "vitest-dev/vitest"
+  "mocha": "mochajs/mocha"
+
+  # --- Arweave/WeaveDB ecosystem (IronWorm attack surface, June 2026) ---
+  "weavedb-sdk": "weavedb/weavedb"
+  "wao": "weavedb/wao"
+  "arweave": "ArweaveTeam/arweave-js"
 
 # ---------------------------------------------------------------------------
-# Cargo (Rust) — populate if applicable
+# Cargo (Rust)
+# Verified via: crates.io/crates/<name>
 # ---------------------------------------------------------------------------
 Cargo:
-  # "openssl": "sfackler/rust-openssl"
-  # "tokio": "tokio-rs/tokio"
-  # "reqwest": "seanmonstar/reqwest"
-  # "serde": "serde-rs/serde"
+  "serde": "serde-rs/serde"
+  "serde_json": "serde-rs/json"
+  "tokio": "tokio-rs/tokio"
+  "reqwest": "seanmonstar/reqwest"
+  "hyper": "hyperium/hyper"
+  "axum": "tokio-rs/axum"
+  "rustls": "rustls/rustls"
+  "ring": "briansmith/ring"
+  "openssl": "sfackler/rust-openssl"
+  "clap": "clap-rs/clap"
+  "anyhow": "dtolnay/anyhow"
+  "thiserror": "dtolnay/thiserror"
+  "tracing": "tokio-rs/tracing"
+  "log": "rust-lang/log"
+  "rand": "rust-random/rand"
+  "chrono": "chronotope/chrono"
+  "regex": "rust-lang/regex"
+  "uuid": "uuid-rs/uuid"
+  "sqlx": "launchbadge/sqlx"
 
 # ---------------------------------------------------------------------------
-# Packages that MUST have a provenance attestation.
-# Missing attestation = BLOCK (not just quarantine).
-# Use for your most security-critical dependencies.
+# Go — module path is the canonical identifier
+# ---------------------------------------------------------------------------
+Go:
+  "golang.org/x/crypto": "golang/crypto"
+  "golang.org/x/net": "golang/net"
+  "github.com/golang-jwt/jwt": "golang-jwt/jwt"
+  "github.com/gorilla/mux": "gorilla/mux"
+  "github.com/gin-gonic/gin": "gin-gonic/gin"
+  "github.com/spf13/cobra": "spf13/cobra"
+  "github.com/spf13/viper": "spf13/viper"
+  "go.uber.org/zap": "uber-go/zap"
+  "github.com/sirupsen/logrus": "sirupsen/logrus"
+  "github.com/stretchr/testify": "stretchr/testify"
+  "github.com/hashicorp/vault/api": "hashicorp/vault"
+
+# ---------------------------------------------------------------------------
+# Maven (Java/JVM) — format: "groupId:artifactId"
+# ---------------------------------------------------------------------------
+Maven:
+  "org.apache.commons:commons-lang3": "apache/commons-lang"
+  "org.apache.commons:commons-collections4": "apache/commons-collections"
+  "com.fasterxml.jackson.core:jackson-databind": "FasterXML/jackson-databind"
+  "com.google.guava:guava": "google/guava"
+  "org.springframework:spring-core": "spring-projects/spring-framework"
+  "org.springframework.boot:spring-boot": "spring-projects/spring-boot"
+  "org.slf4j:slf4j-api": "qos-ch/slf4j"
+  "ch.qos.logback:logback-classic": "qos-ch/logback"
+  "junit:junit": "junit-team/junit4"
+  "org.junit.jupiter:junit-jupiter": "junit-team/junit5"
+  "io.jsonwebtoken:jjwt-api": "jwtk/jjwt"
+  "org.bouncycastle:bcprov-jdk18on": "bcgit/bc-java"
+
+# ---------------------------------------------------------------------------
+# NuGet (.NET)
+# ---------------------------------------------------------------------------
+NuGet:
+  "Newtonsoft.Json": "JamesNK/Newtonsoft.Json"
+  "Microsoft.Extensions.DependencyInjection": "dotnet/runtime"
+  "Microsoft.Extensions.Logging": "dotnet/runtime"
+  "Microsoft.Extensions.Configuration": "dotnet/runtime"
+  "System.Text.Json": "dotnet/runtime"
+  "Serilog": "serilog/serilog"
+  "NLog": "NLog/NLog"
+  "AutoMapper": "AutoMapper/AutoMapper"
+  "FluentValidation": "FluentValidation/FluentValidation"
+  "Dapper": "DapperLib/Dapper"
+  "Microsoft.EntityFrameworkCore": "dotnet/efcore"
+  "xunit": "xunit/xunit"
+  "Moq": "moq/moq"
+  "BouncyCastle.Cryptography": "bcgit/bc-csharp"
+  "Microsoft.IdentityModel.JsonWebTokens": "AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet"
+
+# ---------------------------------------------------------------------------
+# RubyGems
+# ---------------------------------------------------------------------------
+RubyGems:
+  "rails": "rails/rails"
+  "rake": "ruby/rake"
+  "bundler": "rubygems/bundler"
+  "devise": "heartcombo/devise"
+  "nokogiri": "sparklemotion/nokogiri"
+  "faraday": "lostisland/faraday"
+  "httparty": "jnunemaker/httparty"
+  "rspec": "rspec/rspec"
+  "rubocop": "rubocop/rubocop"
+  "jwt": "jwt/ruby-jwt"
+  "bcrypt": "bcrypt-ruby/bcrypt-ruby"
+  "dotenv": "bkeepers/dotenv"
+  "sidekiq": "sidekiq/sidekiq"
+  "puma": "puma/puma"
+
+# ---------------------------------------------------------------------------
+# Provenance attestation required (auto-BLOCK if absent for listed packages)
 # ---------------------------------------------------------------------------
 require_attestation:
   PyPI:
-    - "cryptography"    # Any compromise here is catastrophic
-    - "pyotp"           # Handles MFA tokens
-    - "httpx"           # All outbound network calls go through this
-  npm: []
+    - cryptography
+    - httpx
+    - requests
+    - PyJWT
+  npm:
+    - axios
+    - jsonwebtoken
+    - jose
+    - typescript
+    - esbuild
+    - vite
+    - webpack
+  Cargo:
+    - serde
+    - tokio
+    - reqwest
+    - rustls
+    - ring
