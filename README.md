@@ -8,7 +8,7 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.6.1 — All gates fully operational.** Multi-ecosystem support: PyPI, npm, Cargo, Go, Maven, NuGet, RubyGems. `oss-trust check-all` available as installed CLI command.
+> **v0.5.1 — All gates fully operational for PyPI and npm.** Registry support for 7 ecosystems (Cargo, Go, Maven, NuGet, RubyGems) with partial gate coverage — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
 
 ---
 
@@ -414,26 +414,47 @@ require_attestation:        # These packages BLOCK if no Sigstore attestation fo
 
 ## Supported Ecosystems
 
-| Ecosystem | Registry | Package format | Example |
-|-----------|----------|----------------|---------|
-| `PyPI` | pypi.org | `package==version` | `requests==2.33.0` |
-| `npm` | npmjs.com | `package@version` | `express@4.18.2` |
-| `Cargo` | crates.io | `crate@version` | `serde@1.0.200` |
-| `Go` | proxy.golang.org | module path | `github.com/gin-gonic/gin` |
-| `Maven` | search.maven.org | `groupId:artifactId` | `org.apache.commons:commons-lang3` |
-| `NuGet` | nuget.org | `PackageId` | `Newtonsoft.Json` |
-| `RubyGems` | rubygems.org | `gem` | `rails` |
+> **Coverage note:** Gates 0, 1, 2.5, 3, and 4 run on all ecosystems listed below. Gate 2 (provenance attestation) is complete only for PyPI and npm, which have native Sigstore-based trusted publishing. Gate 5 (behavioral sandbox) intercepts install-time hooks — effective for npm and Cargo; not applicable to Go. See [BACKLOG.md](BACKLOG.md) for the full per-ecosystem gap analysis and roadmap.
 
-**Manifest file auto-detection:**
+### Full gate coverage
 
-| File | Ecosystem detected |
-|------|--------------------|
-| `package.json` | npm |
-| `requirements.txt` | PyPI |
-| `framework_deps.txt` | Multi (prefix format: `PyPI:requests==2.33.0`) |
-| `Cargo.toml` | Cargo |
-| `Gemfile.lock` | RubyGems |
-| `packages.config` | NuGet |
+| Ecosystem | Registry | Package format | Example | Manifest |
+|-----------|----------|----------------|---------|----------|
+| `PyPI` ✅ | pypi.org | `package==version` | `requests==2.33.0` | `requirements.txt` |
+| `npm` ✅ | npmjs.com | `package@version` | `express@4.18.2` | `package.json` |
+
+### Partial coverage (Gates 0, 1, 2.5, 3, 4 — Gate 2 provenance pending)
+
+| Ecosystem | Registry | Package format | Example | Manifest | Gate 2 status |
+|-----------|----------|----------------|---------|----------|--------------|
+| `Cargo` | crates.io | `crate@version` | `serde@1.0.200` | `Cargo.toml` | ⚠️ stub — `cargo-vet` integration planned |
+| `RubyGems` | rubygems.org | `gem` | `rails` | `Gemfile.lock` | ❌ not yet implemented |
+| `NuGet` | nuget.org | `PackageId` | `Newtonsoft.Json` | `packages.config` | ❌ not yet implemented |
+
+### Manifest parser + age check only (Gates 0, 1, 3 — no lockfile parser or Gate 2)
+
+| Ecosystem | Registry | Package format | Example | Manifest | What's missing |
+|-----------|----------|----------------|---------|----------|----------------|
+| `Go` | proxy.golang.org | module path | `github.com/gin-gonic/gin` | ❌ `go.sum` parser needed | Manifest parser, Gate 2 (GOPROXY checksum DB) |
+| `Maven` | search.maven.org | `groupId:artifactId` | `org.apache.commons:commons-lang3` | ❌ `pom.xml` / `build.gradle` parser needed | Manifest parser, Gate 2 (GPG via Maven Central) |
+
+Gates 0, 1, 3, and 4 can still run for Go and Maven packages specified explicitly via `--manifest` or via the `framework_deps.txt` prefix format (`Go:github.com/gin-gonic/gin@v1.9.0`).
+
+**Manifest file support** (pass `--manifest <file>` for non-Python projects):
+
+| File | Ecosystem | Supported? |
+|------|-----------|-----------|
+| `requirements.txt` | PyPI | ✅ auto-detected |
+| `framework_deps.txt` | Multi | ✅ auto-detected |
+| `package.json` | npm | ✅ pass `--manifest package.json` |
+| `Cargo.toml` | Cargo | ✅ pass `--manifest Cargo.toml` |
+| `Gemfile.lock` | RubyGems | ✅ pass `--manifest Gemfile.lock` |
+| `packages.config` | NuGet | ✅ pass `--manifest packages.config` |
+| `go.sum` / `go.mod` | Go | ❌ not yet supported |
+| `pom.xml` / `build.gradle` | Maven | ❌ not yet supported |
+
+**Not yet supported** (see [BACKLOG.md](BACKLOG.md) for roadmap):
+`poetry.lock` · `pyproject.toml` · `uv.lock` · `Pipfile.lock` · `Cargo.lock` · `packages.lock.json` · `*.csproj` · `pub.yaml` (Dart) · `Package.swift` · `composer.lock` (PHP)
 
 ---
 
