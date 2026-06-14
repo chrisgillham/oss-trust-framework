@@ -436,7 +436,7 @@ async def run_check_all(
 
     if requirements and requirements.exists():
         e = parse_requirements_txt(requirements)
-        console.print(f"[dim]  {requirements.name} → {len(e)} packages[/dim]")
+        console.print(f"[dim]  {requirements.name} -> {len(e)} packages[/dim]")
         entries.extend(e)
     elif requirements:
         console.print(f"[yellow]  {requirements} not found — skipping[/yellow]")
@@ -446,9 +446,9 @@ async def run_check_all(
         if prod_only:
             before = len(e)
             e = [x for x in e if not x.get("dev")]
-            console.print(f"[dim]  {framework_deps.name} → {len(e)} packages ({before-len(e)} dev skipped)[/dim]")
+            console.print(f"[dim]  {framework_deps.name} -> {len(e)} packages ({before-len(e)} dev skipped)[/dim]")
         else:
-            console.print(f"[dim]  {framework_deps.name} → {len(e)} packages[/dim]")
+            console.print(f"[dim]  {framework_deps.name} -> {len(e)} packages[/dim]")
         entries.extend(e)
     elif framework_deps:
         console.print(f"[yellow]  {framework_deps} not found — skipping[/yellow]")
@@ -469,7 +469,7 @@ async def run_check_all(
         else:
             console.print(f"[yellow]  Unknown manifest type: {p.name} — skipping[/yellow]")
             continue
-        console.print(f"[dim]  {p.name} → {len(e)} packages[/dim]")
+        console.print(f"[dim]  {p.name} -> {len(e)} packages[/dim]")
         entries.extend(e)
 
     if not entries:
@@ -485,7 +485,7 @@ async def run_check_all(
             seen.add(key)
             unique.append(e)
     if len(unique) < len(entries):
-        console.print(f"[dim]  {len(entries)-len(unique)} duplicates removed → {len(unique)} unique[/dim]")
+        console.print(f"[dim]  {len(entries)-len(unique)} duplicates removed -> {len(unique)} unique[/dim]")
     entries = unique
 
     console.print(f"\n[bold]Running Gate 1 age checks on {len(entries)} packages...[/bold]\n")
