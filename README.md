@@ -264,6 +264,9 @@ oss-trust check \
 
 # Check all packages in requirements.txt + framework_deps.txt
 # (with interactive allowlist management for unlisted packages)
+oss-trust check-all
+
+# Same thing — if you cloned the repo instead of pip-installing
 python check_all.py
 
 # Request a zero-day expedited exception
@@ -341,7 +344,7 @@ require_attestation:        # Missing attestation = BLOCK (not just quarantine)
     - "httpx"
 ```
 
-Run `python check_all.py` in your project to interactively populate this file from your actual dependency graph. For each unlisted package, the tool auto-looks up the canonical repo from PyPI and offers to add it with Option 1 (allowlist only) or Option 2 (allowlist + require_attestation).
+Run `oss-trust check-all` in your project to interactively populate this file from your actual dependency graph. For each unlisted package, the tool auto-looks up the canonical repo from the registry and offers to add it with Option 1 (allowlist only) or Option 2 (allowlist + require_attestation). If you cloned the repo, `python check_all.py` is an equivalent shim.
 
 ---
 

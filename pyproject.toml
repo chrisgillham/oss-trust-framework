@@ -42,6 +42,7 @@ dev = [
 
 [project.scripts]
 oss-trust = "oss_trust_framework.cli:main"
+oss-trust-check-all = "oss_trust_framework.check_all:check_all_command"
 
 [tool.hatch.build.targets.wheel]
 packages = ["oss_trust_framework"]

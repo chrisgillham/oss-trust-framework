@@ -3,6 +3,8 @@ CLI entry point for the OSS Trust Framework.
 
 Usage:
     oss-trust check --package requests --version 2.32.3 --ecosystem PyPI
+    oss-trust check-all
+    oss-trust check-all --prod-only --no-interactive
     oss-trust zeroday request --cve CVE-2024-XXXXX --package requests --version 2.32.4
     oss-trust zeroday approve --request-id abc123def456 --approver-id approver_001
     oss-trust zeroday status --request-id abc123def456
@@ -20,6 +22,8 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
+from oss_trust_framework.check_all import check_all_command
+
 console = Console()
 
 
@@ -27,6 +31,12 @@ console = Console()
 @click.version_option(version="0.5.1", prog_name="oss-trust")
 def main() -> None:
     """OSS Trust Framework — supply chain validation pipeline."""
+
+
+# ---------------------------------------------------------------------------
+# oss-trust check-all  (batch dependency checker)
+# ---------------------------------------------------------------------------
+main.add_command(check_all_command)
 
 
 # ---------------------------------------------------------------------------

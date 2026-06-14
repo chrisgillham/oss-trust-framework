@@ -1,0 +1,13 @@
+# requirements.txt
+# Direct runtime dependencies for projects using the OSS Trust Framework.
+# Pin to exact versions in production; use >= here as a starter template.
+# Run: python check_all.py   to validate all packages below against the pipeline.
+
+httpx==0.27.0
+pyyaml==6.0.2
+python-dotenv==1.0.1
+click==8.1.7
+pydantic==2.7.4
+pyotp==2.9.0
+cryptography==42.0.8
+rich==13.7.1
