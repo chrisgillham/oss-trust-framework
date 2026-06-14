@@ -473,7 +473,34 @@ async def run_check_all(
         entries.extend(e)
 
     if not entries:
-        console.print("[red]No packages found. Create requirements.txt or framework_deps.txt first.[/red]")
+        cwd = Path.cwd()
+        # Detect what manifest files exist in cwd to give a useful hint
+        found_manifests = []
+        for name in ("package.json", "Cargo.toml", "Gemfile.lock", "packages.config"):
+            if (cwd / name).exists():
+                found_manifests.append(name)
+
+        if found_manifests:
+            hints = "  ".join(f"--manifest {m}" for m in found_manifests)
+            console.print(
+                f"[red]No packages found.[/red]\n\n"
+                f"  Manifest file(s) detected in current directory: [cyan]{', '.join(found_manifests)}[/cyan]\n\n"
+                f"  Run with:\n"
+                f"    [bold]oss-trust check-all {hints}[/bold]\n\n"
+                f"  [dim]oss-trust check-all only reads requirements.txt and framework_deps.txt automatically.\n"
+                f"  All other manifest types (package.json, Cargo.toml, etc.) require --manifest.[/dim]"
+            )
+        else:
+            console.print(
+                f"[red]No packages found.[/red]\n\n"
+                f"  [bold]For npm projects:[/bold]  oss-trust check-all --manifest package.json\n"
+                f"  [bold]For Python:[/bold]        create requirements.txt, then: oss-trust check-all\n"
+                f"  [bold]For Rust:[/bold]          oss-trust check-all --manifest Cargo.toml\n"
+                f"  [bold]For Ruby:[/bold]          oss-trust check-all --manifest Gemfile.lock\n"
+                f"  [bold]For .NET:[/bold]          oss-trust check-all --manifest packages.config\n"
+                f"  [bold]For any file:[/bold]      oss-trust check-all --manifest <path-to-file>\n\n"
+                f"  [dim]Multiple manifests: oss-trust check-all --manifest package.json --manifest requirements.txt[/dim]"
+            )
         return [], 2
 
     # Deduplicate

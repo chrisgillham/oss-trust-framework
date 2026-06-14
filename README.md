@@ -8,301 +8,447 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.5 — All gates fully operational.** Gate 0–5 active including Gate 4 SBOM delta (syft, cross-platform, baselines pinned) and Gate 5 behavioral sandbox (strace on Linux CI; gVisor for strongest isolation). Zero false positives on all 6 framework dependencies.
+> **v0.6.1 — All gates fully operational.** Multi-ecosystem support: PyPI, npm, Cargo, Go, Maven, NuGet, RubyGems. `oss-trust check-all` available as installed CLI command.
 
 ---
 
-## These attacks are actively happening now. To trusted projects.
+## Table of Contents
 
-| Attack | Date | Packages | Vector | Status |
-|---|---|---|---|---|
-| **Miasma / Red Hat Insights** | 2026 | 32 npm | Compromised employee account + OIDC trusted publishing | Active campaign |
-| **IronWorm** | 2026-06-03 | 36 npm | Rust ELF preinstall hook + eBPF rootkit + Tor C2 | Active campaign |
-| **TanStack** | 2026 | 170 npm | Same OIDC trusted publishing pattern | Active campaign |
-| **Bitwarden CLI** | 2026 | npm | Checkmarx campaign — OIDC trusted publishing | Active campaign |
-| **XZ Utils** | 2024 | tarball | 2-year social engineering → build script backdoor | CVSS 10.0 |
-
----
-
-## Why This Exists
-
-Three distinct supply chain attack patterns are defeating traditional defenses right now:
-
-**Pattern 1 — Speed attacks.** A compromised maintainer account publishes a malicious release. Automated dependency tooling (Dependabot, Renovate, npm update) ingests it within minutes. The attacker wins the race against community detection and revocation.
-
-**Pattern 2 — CI/CD pipeline compromise (Miasma class).** An attacker compromises a legitimate employee's GitHub account, pushes orphan commits bypassing PR review, and exploits `id-token: write` CI/CD permissions to publish via OIDC trusted publishing. The packages are *correctly signed* — the signature is real. Traditional signature verification passes completely.
-
-**Pattern 3 — Rust-based infostealer worms (IronWorm class).** A malicious binary is dropped via a package `preinstall` hook. It hides behind an eBPF kernel rootkit, harvests 86+ environment variables including AI API keys (OpenAI, Anthropic), cloud credentials, SSH keys, and cryptocurrency wallet seed phrases, then beacons to a Tor hidden service. It self-propagates by using stolen npm OIDC credentials to publish trojanized versions of victim-owned packages. Hash-based IOCs are useless — IronWorm generates unique encrypted payloads per infection.
-
-This framework addresses all three patterns with layered, independent gates.
-
----
-
-## Key Benefits
-
-### Catches attacks that valid signatures can't detect
-Miasma and IronWorm both produce packages with valid Sigstore signatures — the attacker controls a real CI/CD pipeline with real OIDC credentials. Gate 2.5 audits the *chain of custody* behind the signature: was there a PR? Did it go through normal merge? Does the attestation point to the canonical org repo or a compromised fork?
-
-### Behavior-based patterns defeat encrypted and obfuscated payloads
-IronWorm generates a unique encrypted payload per infection specifically to defeat hash-based IOCs. Gate 5 matches on *what the payload does* — Tor .onion connections, eBPF syscalls, AI API key access, Exodus wallet reads — not what it looks like. 34 named patterns (18 Miasma + 16 IronWorm). **Active on Linux CI via strace; gVisor provides strongest isolation for production use.**
-
-### Structural defense — no single point of failure
-Each gate queries sources architecturally independent of the compromised repository. Defeating the framework requires compromising NVD + OSV + GHSA + OpenSSF Scorecard + deps.dev + the npm attestation registry simultaneously. No single compromised account, repository, or CI/CD pipeline is sufficient. When the Gate 5 sandbox runner is implemented, IronWorm's eBPF rootkit will also be unable to escape the gVisor kernel boundary.
-
-### Zero-day patches move fast without moving unsafely
-The 72-hour age hold is the highest-ROI control in the framework, but it creates a gap when a legitimate zero-day patch drops. The expedited lane bypasses *only* the age gate, with machine-verified CVE confirmation, 2-of-3 MFA quorum approval, and a 6-hour token TTL.
-
-### Fully auditable by design
-Every gate decision, zero-day exception, and approval event emits a structured SIEM event. Ticket linkage is mandatory for exceptions. Monthly retrospectives are enforced by circuit breaker. Built to satisfy auditors who weren't in the room.
-
-### Drop-in CI/CD integration
-The GitHub Actions workflow fires automatically on any lock file change, comments gate results on PRs, and fails the build on block or quarantine. No per-repo configuration after initial setup.
-
-### Catches typosquatting and package impersonation at the door
-Gate 0 runs before any network query. It compares the requested package name against every entry in your trusted publisher allowlist using three algorithms — Levenshtein edit distance, prefix-addition detection, and adjacent character transposition. `postmark-mcp-evil` vs `postmark-mcp` scores 95% similarity and is blocked before Gate 1 even runs. No network required.
-
-### Supply chain integrity — not a substitute for runtime monitoring
-The framework validates dependencies **before they enter your environment**. It is a supply chain integrity layer, not a runtime security monitor. Threats that manifest after install — a long-running MCP server BCC'ing outbound email, a library that beacons only after a specific condition is met — require complementary runtime tooling (Falco, Tetragon, eBPF-based monitoring). These are parallel controls, not competing ones.
-
-### 131-test suite with no external dependencies
-All tests run offline with mocked API calls. Gate 1 threshold boundaries, all 34 named behavioral patterns, full zero-day quorum lifecycle, cross-gate integration scenarios, and regression tests for known CVE-affected package versions.
-
----
-
-## OWASP Top 10 CI/CD Security Risks Coverage
-
-The framework directly addresses all 10 of the [OWASP Top 10 CI/CD Security Risks](https://owasp.org/www-project-top-10-ci-cd-security-risks/). The mapping below shows which gates implement each control.
-
-| Risk | OWASP description | Framework coverage | Gates |
-|---|---|---|---|
-| **CICD-SEC-1** | Insufficient Flow Control Mechanisms | The age gate enforces a mandatory hold on all new releases regardless of source. The zero-day lane requires machine-verified CVE + 2-of-3 MFA quorum before bypassing it. No single individual can accelerate a dependency update unilaterally. | Gate 1, ZD lane |
-| **CICD-SEC-2** | Inadequate Identity and Access Management | Gate 2.5b audits `id-token: write` and other dangerous permissions in publishing workflows. Gate 2.5c enforces minimum reviewer counts on releases. The zero-day quorum enforces separation of duties — the requester cannot approve their own exception. | Gates 2.5b, 2.5c, ZD lane |
-| **CICD-SEC-3** | Dependency Chain Abuse | The core mission of the framework. Gates 1–5 collectively validate every dependency update before ingestion — age, signature, CI/CD pipeline integrity, out-of-band trust, SBOM delta, and behavioral sandbox. This is exactly the attack class the framework was built to stop. | Gates 1–5 |
-| **CICD-SEC-4** | Poisoned Pipeline Execution (PPE) | Gate 2.5a detects orphan commits — direct pushes bypassing the merge queue. Gate 2.5c confirms every release traces to a reviewed merged PR. Gate 2.5b flags workflows with dangerous permissions exploitable via PPE. The Miasma / Shai-Hulud attack class is a direct real-world example of PPE. | Gates 2.5a, 2.5b, 2.5c |
-| **CICD-SEC-5** | Insufficient PBAC (Pipeline-Based Access Controls) | Gate 2.5b enforces Pipeline-Based Access Controls by auditing `id-token: write`, `contents: write`, and `packages: write` permissions in publishing workflows, and requiring compensating controls (branch protection, CODEOWNERS, environment protection rules) when these permissions exist. | Gate 2.5b |
-| **CICD-SEC-6** | Insufficient Credential Hygiene | Gate 5 behavioral patterns detect credential harvesting at install time: AWS/GCP/Azure reads (CRED-001–005), Vault tokens (IRONWORM-004), npm auth tokens (IRONWORM-006), AI API keys (IRONWORM-003). Gate 2 detects stolen OIDC token misuse. Gate 5 active via strace on Linux CI; gVisor for strongest isolation. | Gates 2, 5 |
-| **CICD-SEC-7** | Insecure System Configuration | Gate 2.5b checks for insecure CI/CD configuration: `id-token: write` without environment protection rules, missing branch protection, and absent CODEOWNERS. The framework's own `dep-trust-check.yml` workflow is itself subject to the pipeline. | Gate 2.5b |
-| **CICD-SEC-8** | Ungoverned Usage of 3rd Party Services | Gate 3 queries OpenSSF Scorecard, OSV, deps.dev, and GitHub Advisories to independently evaluate every third-party dependency. Gate 4 SBOM delta catches unexpected transitive dependencies introduced by third-party packages. `trusted_publishers.yaml` governs which external publisher repos are trusted per package. | Gates 3, 4 |
-| **CICD-SEC-9** | Improper Artifact Integrity Validation | Gate 2 verifies Sigstore / GPG cryptographic signatures and cross-checks `sourceRepositoryURI` in provenance attestations against the trusted publishers allowlist. Gate 4 pins exact hashes in lock files and detects integrity changes. Gate 2.5a confirms the tagged commit is reachable from the default branch, preventing detached / orphaned artifact publishing. | Gates 2, 2.5a, 4 |
-| **CICD-SEC-10** | Insufficient Logging and Visibility | Every gate decision emits a structured SIEM event. Zero-day exceptions require ticket linkage before deployment. Quorum approval events — including MFA failures and duplicate vote attempts — are emitted immediately. Monthly retrospectives are enforced by circuit breaker. The framework produces a complete, non-repudiable audit trail for every dependency decision. | All gates, ZD lane |
-
-### Coverage summary
-
-| Coverage level | Risks |
-|---|---|
-| Fully addressed — multiple independent gates | CICD-SEC-3, CICD-SEC-4, CICD-SEC-9 |
-| Fully addressed — dedicated gate controls | CICD-SEC-1, CICD-SEC-2, CICD-SEC-5, CICD-SEC-7, CICD-SEC-8, CICD-SEC-10 |
-| Not addressed | None — all 10 risks have full gate implementations |
-
-The framework provides full coverage across all 10 OWASP CI/CD Security Risks. Gate 5 is active on Linux CI via strace (install-time behavioral analysis). gVisor provides the strongest isolation for production use — see the [Gate 5 setup guide](docs/gate5_gvisor_setup.md).
-
----
-
-## Architecture
-
-> **Scope:** This framework validates supply chain integrity at dependency install time. It does not monitor runtime application behaviour. See [Supply chain integrity vs runtime monitoring](#supply-chain-integrity-vs-runtime-monitoring) for details.
-
-```
-Dependency update request
-        │
-        ▼
-┌──────────────────────┐   Name ≥ 92% similar to trusted pkg ──► BLOCKED   ◄── postmark-mcp-evil
-│  Gate 0: Name        │   Name ≥ 80% similar ──► WARN (manual review)
-│  Similarity Check    │   Exact allowlist match ──► pass immediately
-│  (local, no network) │   3 algorithms: Levenshtein · prefix · char-swap
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐   < 24 h, no CVE ──► BLOCKED
-│  Gate 1: Age Hold    │
-│  24 h hard block     │   Zero-day CVE filed? ──► Expedited Lane ──────────────┐
-│  72 h soft hold      │                                                         │
-└──────────┬───────────┘                                                         │
-           │ ≥ 24 h                                                              │
-           ▼                                                                     │
-┌──────────────────────┐   Repo mismatch ──► BLOCKED   ◄── Miasma/IronWorm:    │
-│  Gate 2: Provenance  │                                    fork/employee acct  │
-│  Attestation +       │   No attestation ──► QUARANTINE                        │
-│  Publisher Allowlist │   (sourceRepositoryURI vs trusted_publishers.yaml)     │
-└──────────┬───────────┘                                                         │
-           │                                                                     │
-           ▼                                                                     │
-┌──────────────────────┐   Orphan commit ──► BLOCKED    ◄── Miasma/IronWorm:   │
-│  Gate 2.5: CI/CD     │   id-token:write ──► QUARANTINE     direct push       │
-│  Pipeline Audit      │   No PR review  ──► BLOCKED    ◄── OIDC abuse         │
-│  [2.5a] Orphan commits                                                         │
-│  [2.5b] Workflow perms                                                         │
-│  [2.5c] PR provenance│                                                         │
-└──────────┬───────────┘                                                         │
-           │                                            ◄── Rejoins here ────────┘
-           ▼
-┌──────────────────────┐   Score < threshold ──► QUARANTINE
-│  Gate 3: Out-of-Band │   Active CVE ──► QUARANTINE
-│  Trust Aggregation   │   (OpenSSF · OSV · deps.dev · GHSA)
-│                      │   Note: individual source failures degrade score,
-│                      │   they do not fail the gate outright (resilient)
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐   New transitive dep ──► QUARANTINE
-│  Gate 4: SBOM Delta  │   Hash mismatch ──► QUARANTINE
-│  + Hash Pin          │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐   Tor C2 / temp.sh ──► BLOCKED  ◄── IronWorm: exfil
-│  Gate 5: Behavioral  │   eBPF rootkit ──► BLOCKED       ◄── IronWorm: rootkit
-│  Sandbox             │   AI API key harvest ──► BLOCKED  ◄── IronWorm: OPENAI_API_KEY
-│  34 patterns active  │   Cloud cred harvest ──► BLOCKED  ◄── Miasma: IMDS/OIDC
-│  strace CI backend   │   Exodus wallet ──► BLOCKED       ◄── IronWorm: crypto theft
-│  gVisor: strongest   │   Registry publish ──► BLOCKED    ◄── Both: re-publish
-└──────────┬───────────┘
-           │
-           ▼
-    ┌──────────────┐
-    │ Staged Rollout│──► APPROVED
-    │ 72 h canary  │    (ZD lane: immediate + 48 h alert window)
-    └──────────────┘
-```
-
-### Zero-Day Expedited Lane
-
-Bypasses the **age gate only**. All other gates remain mandatory.
-
-```
-CVE validated (NVD + OSV + GHSA — 2-of-3 independent sources required)
-        │
-        ▼
-Quorum approval (2-of-3 named approvers · MFA required · requester excluded)
-        │
-        ▼
-Provenance attestation + timing check (must postdate CVE publication)
-        │
-        ▼
-CI/CD audit Gates 2.5a–c (mandatory — compromised-account patches are still caught)
-        │
-        ▼
-Behavioral sandbox (34 patterns active · strace backend on Linux CI · gVisor for production)
-        │
-        ▼
-Audit record (SIEM event + ticket link mandatory before deploy)
-        │
-        ▼
-Immediate full-fleet deploy + 48 h elevated alert window
-```
+- [Installation](#installation)
+- [Usage Guide](#usage-guide)
+  - [Check all deps in a project](#1-check-all-deps-in-a-project-the-most-common-task)
+  - [Check a single package](#2-check-a-single-package)
+  - [Windows users](#3-windows-users)
+  - [CI/CD integration](#4-cicd-integration)
+  - [Zero-day expedited lane](#5-zero-day-expedited-lane)
+  - [Populate the trusted publishers allowlist](#6-populate-the-trusted-publishers-allowlist)
+- [Supported Ecosystems](#supported-ecosystems)
+- [Configuration](#configuration)
+- [Why This Exists](#why-this-exists)
+- [Architecture](#architecture)
+- [Gate Reference](#gate-reference)
+- [Attack Coverage](#attack-coverage)
+- [Running Tests](#running-tests)
+- [Contributing](#contributing)
 
 ---
 
 ## Installation
 
-There are two paths depending on what you want to do:
-
-### Use in your project (most common)
-
-You want to protect an existing repo from supply chain attacks. Do **not** clone the framework repo — just install it and add the GitHub Actions workflow.
-
 ```bash
-# Install from PyPI
 pip install oss-trust-framework
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.5.1
+# oss-trust, version 0.6.1
 ```
 
-> **Installing from source** (latest dev build):
+> **Windows users:** Set `$env:PYTHONUTF8 = "1"` before running any command, or add it to your PowerShell profile. See [Windows users](#3-windows-users) below.
+
+> **Installing latest dev build from source:**
 > ```bash
 > pip install "git+https://github.com/chrisgillham/oss-trust-framework.git"
 > ```
 
-Then add the workflow to your repo (see [CI/CD Integration](#cicd-integration) below) and populate `config/trusted_publishers.yaml` with your critical packages.
+---
 
-### Develop the framework (contributors)
+## Usage Guide
 
-Only clone the repo if you are contributing — adding behavioral patterns, adding behavioral patterns, or working on the codebase.
+### 1. Check all deps in a project (the most common task)
 
+`oss-trust check-all` reads your project's dependency files and runs every package through Gate 1 (age check).
+
+> **Important:** `oss-trust check-all` with no arguments only auto-detects `requirements.txt` and `framework_deps.txt` (Python). For npm, Rust, Ruby, and .NET projects you **must** pass `--manifest` pointing at your lockfile. If you forget, the tool will detect common manifest files in the current directory and tell you the exact command to run.
+
+**npm project:**
 ```bash
-# Clone and set up editable install
-git clone https://github.com/chrisgillham/oss-trust-framework
-cd oss-trust-framework
-
-# Windows
-python -m venv .venv && .venv\Scripts\activate
-
-# Mac/Linux
-python -m venv .venv && source .venv/bin/activate
-
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Verify
-oss-trust --version
-# oss-trust, version 0.3.0
-
-cp .env.example .env
-# Edit .env — add GITHUB_TOKEN, SIEM_HEC_ENDPOINT, etc.
+oss-trust check-all --manifest package.json
 ```
 
-**Note on coverage command:** Use `--cov=oss_trust_framework` not `--cov=src` — the package directory was renamed:
+**Python project (`requirements.txt` auto-detected):**
 ```bash
-pytest tests/ -v --cov=oss_trust_framework --cov-report=term-missing
+oss-trust check-all
+```
+
+**Rust:**
+```bash
+oss-trust check-all --manifest Cargo.toml
+```
+
+**Ruby:**
+```bash
+oss-trust check-all --manifest Gemfile.lock
+```
+
+**.NET:**
+```bash
+oss-trust check-all --manifest packages.config
+```
+
+**Multiple manifests at once (mixed-stack project):**
+```bash
+oss-trust check-all --manifest package.json --manifest requirements.txt
+```
+
+**Skip dev dependencies (production-only check):**
+```bash
+oss-trust check-all --prod-only
+```
+
+**Non-interactive mode — for CI pipelines:**
+```bash
+oss-trust check-all --manifest package.json --no-interactive
+```
+
+**JSON output — for CI pipelines and reporting:**
+```bash
+# Linux/Mac
+oss-trust check-all --manifest package.json --no-interactive --output json > trust-report.json
+
+# Windows PowerShell (UTF-8 encoding required for redirect)
+$env:PYTHONUTF8 = "1"
+oss-trust check-all --manifest package.json --no-interactive --output json 2>$null > trust-report.json
+```
+
+**Fail the build if any package is in HOLD state:**
+```bash
+oss-trust check-all --manifest package.json --no-interactive --fail-on-hold
+```
+
+**What the output looks like:**
+
+```
+OSS Trust Framework - check-all
+config: ./config/trusted_publishers.yaml
+
+  package.json -> 9 packages
+
+Running Gate 1 age checks on 9 packages...
+
+All packages are in the trusted_publishers allowlist.
+
+Ecosystem  Package             Version  Allowlist  Age (h)   Gate 1  Outcome
+npm        express             4.18.2   check      32261.3   pass    PASS
+npm        jsonwebtoken        9.0.2    check       24445.0  pass    PASS
+npm        uuid                14.0.0   check       168.2    pass    PASS
+...
+
+Summary: 9 packages -- 9 passed  0 on hold  0 blocked  0 errors
+```
+
+**What the JSON output looks like (`trust-report.json`):**
+
+```json
+[
+  {
+    "ecosystem": "npm",
+    "package": "express",
+    "version": "4.18.2",
+    "source": "package.json",
+    "in_allowlist": true,
+    "attestation_required": false,
+    "age_hours": 32261.3,
+    "gate1_decision": "pass",
+    "gate1_message": "express@4.18.2 is 32261.3h old -- age gate cleared.",
+    "outcome": "PASS"
+  }
+]
 ```
 
 ---
 
-## Quickstart
+### 2. Check a single package
 
-> **Installing the framework in your own project?** Use `pip install oss-trust-framework` — do not clone this repo. See [Installation](#installation) above.
+Use this when you want to validate one specific package version before upgrading — especially useful after `npm audit fix --force` or a Dependabot PR.
 
 ```bash
-# Run the full pipeline against a single package
+# Basic check — Gate 1 (age) only
+oss-trust check --package express --version 5.0.0 --ecosystem npm
+
+# Full pipeline check — all gates including provenance and OOB trust
 oss-trust check \
   --package requests \
   --version 2.33.0 \
   --ecosystem PyPI \
   --github-repo psf/requests
 
-# Check all packages in requirements.txt + framework_deps.txt
-# (with interactive allowlist management for unlisted packages)
-oss-trust check-all
+# npm package with GitHub repo for full gate coverage
+oss-trust check \
+  --package jsonwebtoken \
+  --version 9.0.2 \
+  --ecosystem npm \
+  --github-repo auth0/node-jsonwebtoken
 
-# Same thing — if you cloned the repo instead of pip-installing
-python check_all.py
+# Cargo crate
+oss-trust check --package serde --version 1.0.200 --ecosystem Cargo
 
-# Request a zero-day expedited exception
+# Maven artifact (use groupId:artifactId format)
+oss-trust check \
+  --package "org.apache.commons:commons-lang3" \
+  --version 3.14.0 \
+  --ecosystem Maven
+```
+
+**Supported `--ecosystem` values:**
+`PyPI` `npm` `Cargo` `Go` `Maven` `NuGet` `RubyGems`
+
+**What a PASS looks like:**
+```
+Gate 1 (Age):       PASS  — requests@2.33.0 is 1847.2h old
+Gate 2 (Provenance): PASS  — published from psf/requests (expected)
+Gate 3 (OOB Trust):  PASS  — score 82.5/100, 0 active CVEs
+Outcome: APPROVED
+```
+
+**What a BLOCK looks like (new release):**
+```
+Gate 1 (Age): BLOCK — express@5.0.1 is 4.2h old
+Hard block threshold is 24h.
+File a CVE reference to route through the zero-day expedited lane.
+Outcome: BLOCKED
+```
+
+**What a HOLD looks like (24-72h window):**
+```
+Gate 1 (Age): HOLD — cryptography@44.0.1 is 31.5h old
+Within the 72h hold window. Human approval required.
+Outcome: HOLD
+```
+
+---
+
+### 3. Windows users
+
+PowerShell redirects (`>`) default to cp1252 encoding, which can't handle some Unicode characters in Rich terminal output. Set UTF-8 mode first:
+
+```powershell
+# For the current session
+$env:PYTHONUTF8 = "1"
+
+# Make it permanent (run once)
+New-Item -ItemType Directory -Force -Path (Split-Path $PROFILE)
+Add-Content $PROFILE "`n`$env:PYTHONUTF8 = '1'"
+```
+
+**Redirect stderr away from the JSON output** when saving to a file (the Rich table goes to stderr, JSON goes to stdout):
+
+```powershell
+# Save only the JSON, suppress the table display
+oss-trust check-all --manifest package.json --output json 2>$null > trust-report.json
+
+# View the JSON report
+Get-Content trust-report.json | ConvertFrom-Json | Format-Table ecosystem, package, version, outcome
+```
+
+---
+
+### 4. CI/CD integration
+
+**GitHub Actions — auto-runs on any lock file change:**
+
+Add `.github/workflows/dep-trust-check.yml` to your repo:
+
+```yaml
+name: Dependency trust check
+
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/requirements.txt'
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/Gemfile.lock'
+
+jobs:
+  trust-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install OSS Trust Framework
+        run: pip install oss-trust-framework
+
+      - name: Run trust check
+        run: |
+          oss-trust check-all \
+            --manifest package.json \
+            --no-interactive \
+            --fail-on-hold \
+            --output json > trust-report.json
+
+      - name: Upload trust report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trust-report
+          path: trust-report.json
+```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | All packages passed |
+| `1` | One or more packages BLOCKED or (with `--fail-on-hold`) HELD |
+| `2` | No packages found to check |
+
+---
+
+### 5. Zero-day expedited lane
+
+When a legitimate zero-day patch drops for a package you depend on, the 72-hour age hold creates a gap. The expedited lane bypasses **only** the age gate — all other gates remain mandatory.
+
+**Step 1 — Request an exception:**
+```bash
 oss-trust zeroday request \
-  --cve CVE-2024-XXXXX \
-  --package requests \
-  --version 2.33.1 \
+  --cve CVE-2024-12345 \
+  --package cryptography \
+  --version 44.0.1 \
+  --ecosystem PyPI \
   --requester security@yourorg.com
+```
 
-# Approve (run by each named approver separately)
+Output:
+```
+CVE-2024-12345 validated against NVD + OSV + GHSA (2-of-3 sources required)
+Quorum request created: request-id abc123def456
+Notify approvers: approver_001, approver_002, approver_003
+Token TTL: 6 hours
+```
+
+**Step 2 — Each approver approves separately (MFA required):**
+```bash
 oss-trust zeroday approve \
   --request-id abc123def456 \
   --approver-id approver_001 \
   --mfa-token 123456
+```
 
-# Check status
+**Step 3 — Check status:**
+```bash
 oss-trust zeroday status --request-id abc123def456
 ```
+
+**Rules:**
+- Requester cannot approve their own request (separation of duties)
+- 2-of-3 named approvers required
+- Token expires after 6 hours — no extensions
+- More than 3 exceptions in 24 hours suspends the lane pending CISO review
+
+---
+
+### 6. Populate the trusted publishers allowlist
+
+The allowlist maps package names to their canonical GitHub source repo. Gate 2 uses this to verify that a package's provenance attestation points to the right repo — not a compromised fork or employee account (the Miasma attack pattern).
+
+**Interactive population — recommended first step for any project:**
+```bash
+# Run from your project directory
+oss-trust check-all --manifest package.json
+```
+
+For any package not in the allowlist, you'll be prompted:
+```
+express@4.18.2 is not in trusted_publishers.yaml
+  Looking up canonical repo... found: expressjs/express
+
+  [1] Add to allowlist only
+  [2] Add to allowlist + require_attestation (block if no Sigstore attestation)
+  [s] Skip
+  [q] Quit interactive mode
+
+  Choice [1/2/s/q]: 1
+  Added npm/express: expressjs/express
+  config/trusted_publishers.yaml saved.
+```
+
+**Auto-populate without prompts (scripts/automation):**
+```bash
+# In scripts/check_all.py — emit YAML entries for all deps in a manifest
+python scripts/check_all.py --populate-allowlist npm package.json
+```
+
+Output:
+```yaml
+# npm trusted_publishers entries
+# Generated from package.json
+
+  "express": "expressjs/express"
+  "jsonwebtoken": "auth0/node-jsonwebtoken"
+  "helmet": "helmetjs/helmet"
+  # "acme-client": "FIXME/repo"   <-- couldn't auto-resolve, fill in manually
+```
+
+Paste into `config/trusted_publishers.yaml` under the `npm:` section.
+
+**Manual editing of `config/trusted_publishers.yaml`:**
+```yaml
+npm:
+  "express": "expressjs/express"
+  "jsonwebtoken": "auth0/node-jsonwebtoken"
+  "uuid": "uuidjs/uuid"
+
+PyPI:
+  "cryptography": "pyca/cryptography"
+  "requests": "psf/requests"
+
+Cargo:
+  "serde": "serde-rs/serde"
+  "tokio": "tokio-rs/tokio"
+
+require_attestation:        # These packages BLOCK if no Sigstore attestation found
+  PyPI:
+    - "cryptography"
+    - "requests"
+  npm:
+    - "jsonwebtoken"
+```
+
+---
+
+## Supported Ecosystems
+
+| Ecosystem | Registry | Package format | Example |
+|-----------|----------|----------------|---------|
+| `PyPI` | pypi.org | `package==version` | `requests==2.33.0` |
+| `npm` | npmjs.com | `package@version` | `express@4.18.2` |
+| `Cargo` | crates.io | `crate@version` | `serde@1.0.200` |
+| `Go` | proxy.golang.org | module path | `github.com/gin-gonic/gin` |
+| `Maven` | search.maven.org | `groupId:artifactId` | `org.apache.commons:commons-lang3` |
+| `NuGet` | nuget.org | `PackageId` | `Newtonsoft.Json` |
+| `RubyGems` | rubygems.org | `gem` | `rails` |
+
+**Manifest file auto-detection:**
+
+| File | Ecosystem detected |
+|------|--------------------|
+| `package.json` | npm |
+| `requirements.txt` | PyPI |
+| `framework_deps.txt` | Multi (prefix format: `PyPI:requests==2.33.0`) |
+| `Cargo.toml` | Cargo |
+| `Gemfile.lock` | RubyGems |
+| `packages.config` | NuGet |
 
 ---
 
 ## Configuration
 
-### Core pipeline settings (`config/pipeline.yaml`)
+### `config/pipeline.yaml` — gate thresholds
 
 ```yaml
 age_gate:
-  hard_block_hours: 24      # < 24 h: auto-blocked regardless of source
-  hold_hours: 72            # 24-72 h: human approval required
+  hard_block_hours: 24      # Releases younger than this: auto-blocked
+  hold_hours: 72            # 24-72h: human approval required before proceeding
 
 trust_scoring:
-  min_scorecard_score: 6.0  # OpenSSF minimum (0-10)
+  min_scorecard_score: 6.0  # OpenSSF Scorecard minimum (0-10 scale)
   require_zero_active_vulns: true
-  # Note: if a source is unavailable, the aggregator uses a neutral
-  # default score for that source rather than failing the gate.
-  # This is intentional resilient behaviour.
 
 cicd_audit:
   orphan_commits:
@@ -316,7 +462,7 @@ cicd_audit:
     action_on_direct_push: block
 
 sandbox:
-  runtime: gvisor
+  runtime: gvisor            # gvisor | strace | audit
   network: none
   behavioral_patterns:
     block_on_critical: true
@@ -328,23 +474,147 @@ zero_day:
     max_exceptions_per_24h: 3
 ```
 
-### Trusted publisher allowlist (`config/trusted_publishers.yaml`)
+### `config/trusted_publishers.yaml` — per-package allowlist
 
-Maps package names to their canonical GitHub source repo. A provenance attestation pointing to any other repository is treated as a CRITICAL finding and blocked.
+See [Populate the trusted publishers allowlist](#6-populate-the-trusted-publishers-allowlist) above. The full pre-populated allowlist covering 100+ high-value packages across all 7 ecosystems ships with the framework at `config/trusted_publishers.yaml`.
 
-```yaml
-PyPI:
-  "requests": "psf/requests"
-  "cryptography": "pyca/cryptography"
-  "httpx": "encode/httpx"
+---
 
-require_attestation:        # Missing attestation = BLOCK (not just quarantine)
-  PyPI:
-    - "cryptography"
-    - "httpx"
+## Why This Exists
+
+Three distinct supply chain attack patterns are defeating traditional defenses right now:
+
+**Pattern 1 — Speed attacks.** A compromised maintainer account publishes a malicious release. Automated dependency tooling (Dependabot, Renovate, npm update) ingests it within minutes. The attacker wins the race against community detection and revocation.
+
+**Pattern 2 — CI/CD pipeline compromise (Miasma class).** An attacker compromises a legitimate employee's GitHub account, pushes orphan commits bypassing PR review, and exploits `id-token: write` CI/CD permissions to publish via OIDC trusted publishing. The packages are *correctly signed* — the signature is real. Traditional signature verification passes completely.
+
+**Pattern 3 — Rust-based infostealer worms (IronWorm class).** A malicious binary is dropped via a package `preinstall` hook. It hides behind an eBPF kernel rootkit, harvests 86+ environment variables including AI API keys (OpenAI, Anthropic), cloud credentials, SSH keys, and cryptocurrency wallet seed phrases, then beacons to a Tor hidden service. It self-propagates by using stolen npm OIDC credentials to publish trojanized versions of victim-owned packages. Hash-based IOCs are useless — IronWorm generates unique encrypted payloads per infection.
+
+### Active attacks
+
+| Attack | Date | Packages | Vector | Status |
+|---|---|---|---|---|
+| **Miasma / Red Hat Insights** | 2026 | 32 npm | Compromised employee account + OIDC trusted publishing | Active campaign |
+| **IronWorm** | 2026-06-03 | 36 npm | Rust ELF preinstall hook + eBPF rootkit + Tor C2 | Active campaign |
+| **TanStack** | 2026 | 170 npm | Same OIDC trusted publishing pattern | Active campaign |
+| **Bitwarden CLI** | 2026 | npm | Checkmarx campaign — OIDC trusted publishing | Active campaign |
+| **XZ Utils** | 2024 | tarball | 2-year social engineering -> build script backdoor | CVSS 10.0 |
+
+---
+
+## Architecture
+
+```
+Dependency update request
+        |
+        v
++----------------------+   Name >= 92% similar to trusted pkg --> BLOCKED   <-- postmark-mcp-evil
+|  Gate 0: Name        |   Name >= 80% similar --> WARN (manual review)
+|  Similarity Check    |   Exact allowlist match --> pass immediately
+|  (local, no network) |   3 algorithms: Levenshtein, prefix, char-swap
++----------+-----------+
+           |
+           v
++----------------------+   < 24 h, no CVE --> BLOCKED
+|  Gate 1: Age Hold    |
+|  24 h hard block     |   Zero-day CVE filed? --> Expedited Lane ----------+
+|  72 h soft hold      |                                                     |
++----------+-----------+                                                     |
+           | >= 24 h                                                         |
+           v                                                                 |
++----------------------+   Repo mismatch --> BLOCKED   <-- Miasma/IronWorm  |
+|  Gate 2: Provenance  |   No attestation --> QUARANTINE                    |
+|  Attestation +       |   (sourceRepositoryURI vs trusted_publishers.yaml) |
+|  Publisher Allowlist |                                                     |
++----------+-----------+                                                     |
+           |                                                                 |
+           v                                                                 |
++----------------------+   Orphan commit --> BLOCKED   <-- Miasma/IronWorm  |
+|  Gate 2.5: CI/CD     |   id-token:write --> QUARANTINE                    |
+|  Pipeline Audit      |   No PR review --> BLOCKED                         |
++----------+-----------+                           <-- Rejoins here --------+
+           |
+           v
++----------------------+   Score < threshold --> QUARANTINE
+|  Gate 3: Out-of-Band |   Active CVE --> QUARANTINE
+|  Trust Aggregation   |   (OpenSSF, OSV, deps.dev, GHSA)
++----------+-----------+
+           |
+           v
++----------------------+   New transitive dep --> QUARANTINE
+|  Gate 4: SBOM Delta  |   Hash mismatch --> QUARANTINE
++----------+-----------+
+           |
+           v
++----------------------+   Tor C2 --> BLOCKED       <-- IronWorm: exfil
+|  Gate 5: Behavioral  |   eBPF rootkit --> BLOCKED  <-- IronWorm: rootkit
+|  Sandbox             |   AI API key harvest --> BLOCKED
+|  34 patterns active  |   Cloud cred harvest --> BLOCKED
++----------+-----------+
+           |
+           v
+    +--------------+
+    | Staged Rollout| --> APPROVED
+    | 72 h canary  |
+    +--------------+
 ```
 
-Run `oss-trust check-all` in your project to interactively populate this file from your actual dependency graph. For each unlisted package, the tool auto-looks up the canonical repo from the registry and offers to add it with Option 1 (allowlist only) or Option 2 (allowlist + require_attestation). If you cloned the repo, `python check_all.py` is an equivalent shim.
+---
+
+## Gate Reference
+
+| Gate | Controls | Fail action | Bypassable? |
+|---|---|---|---|
+| **0 — Name similarity** | Package name vs trusted allowlist — Levenshtein, prefix-addition, char-swap detection | Warn (>=80%) · Block (>=92%) | No |
+| **1 — Age** | Release timestamp vs 24 h / 72 h thresholds | Block / Hold | Age only — with CVE + MFA quorum |
+| **2 — Provenance** | Sigstore attestation present; `sourceRepositoryURI` matches allowlist | Block (mismatch) · Quarantine (missing) | No |
+| **2.5a — Orphan commits** | Release tag commit reachable from default branch via BFS graph walk | Block | No |
+| **2.5b — Workflow permissions** | `id-token: write` in publishing workflow without compensating controls | Quarantine | No |
+| **2.5c — PR provenance** | Release backed by merged PR with >= 1 approving reviewer | Block (no PR) · Quarantine (no review) | No |
+| **3 — OOB Trust** | OpenSSF Scorecard >= threshold; zero active CVEs via OSV + deps.dev + GHSA | Quarantine | No |
+| **4 — SBOM delta** | No unexpected transitive deps; lock file hash unchanged | Quarantine | No |
+| **5 — Behavioral sandbox** | gVisor/strace install-time execution; 34 named behavioral patterns (18 Miasma + 16 IronWorm) | Block | No |
+
+---
+
+## Attack Coverage
+
+### Miasma / Shai-Hulud — Red Hat Insights (2026)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| Orphan commit pushed, bypassing PR | **2.5a** | BFS walk; tag commit unreachable from main -> BLOCK |
+| No code review on malicious commit | **2.5c** | No merged PR -> DIRECT_PUSH -> BLOCK |
+| `id-token: write` exploited for OIDC publish | **2.5b** | Dangerous perm + no env protection -> QUARANTINE |
+| Published from employee fork, not canonical org | **2** | `sourceRepositoryURI` mismatch -> BLOCK |
+| Cloud credential harvesting (GCP/Azure IMDS) | **5** | MIASMA-001/002: IMDS network events -> BLOCK |
+| OIDC token requested from install context | **5** | MIASMA-010: `token.actions.githubusercontent.com` -> BLOCK |
+| Re-publish to npm from install script | **5** | PUBLISH-001: PUT to `registry.npmjs.org` -> BLOCK |
+
+### IronWorm — asteroiddao / Arweave ecosystem (JFrog, 2026-06-03)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| Published from compromised `asteroiddao` account | **2** | `sourceRepositoryURI` mismatch -> BLOCK |
+| Orphan commits with backdated timestamps | **2.5a** | Graph reachability — timestamps irrelevant -> BLOCK |
+| Rust ELF binary dropped via `preinstall` hook | **5** | IRONWORM-002b: `tools/setup` process event -> BLOCK |
+| eBPF kernel rootkit load | **5** | IRONWORM-002: `BPF_PROG_LOAD` syscall -> BLOCK |
+| AI API key harvest (OpenAI, Anthropic, Gemini) | **5** | IRONWORM-003: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` -> BLOCK |
+| AWS / GCP / Azure / Vault credential theft | **5** | CRED-003/004 + IRONWORM-004 -> BLOCK |
+| Tor hidden service C2 beacon | **5** | IRONWORM-001: `.onion` network event -> BLOCK |
+| npm token theft for self-propagation | **5** | IRONWORM-006/006b: `.npmrc` read + `NPM_AUTH_TOKEN` -> BLOCK |
+
+---
+
+## Zero-Day Lane Circuit Breakers
+
+| Condition | Action |
+|---|---|
+| > 3 exception requests in 24 hours | Lane suspended pending CISO review |
+| Same requester files two exceptions within 48 hours | Second request escalates to CISO sign-off |
+| Any exception-deployed package receives a new CVE within 30 days | Lane suspended; retrospective triggered |
+
+Exception tokens expire after 6 hours. Re-approval required — no extensions.
 
 ---
 
@@ -360,162 +630,29 @@ pytest tests/test_gate3_trust.py      # 6 tests  — OOB trust aggregation
 pytest tests/test_gate5_behavioral.py # 50 tests — all 34 named patterns
 pytest tests/test_zeroday_lane.py     # 23 tests — full quorum lifecycle
 pytest tests/test_integration.py      # 10 tests — cross-gate scenarios
-pytest tests/test_check_all.py        # 13 tests — dependency check utilities
 
 # With coverage
 pytest --cov=oss_trust_framework --cov-report=term-missing
 ```
 
-### Test design notes
-
-- All external API calls (PyPI, OSV, OpenSSF, GitHub) are mocked — tests run fully offline
-- Gate 5 tests cover every named pattern individually — 18 Miasma + 16 IronWorm; sandbox backend mocked in unit tests, active via strace on Linux CI
-- Zero-day tests cover the full lifecycle: create → approve (×2) → quorum → post-approval state
-- Integration tests include regression cases for `requests 2.32.3` (2 CVEs) vs `2.33.0` (clean)
-- Gate 3 source failure is tested: individual source unavailability degrades score gracefully rather than failing the gate
+All external API calls (PyPI, OSV, OpenSSF, GitHub) are mocked — tests run fully offline.
 
 ---
 
-## Gate Reference
+## OWASP Top 10 CI/CD Security Risks Coverage
 
-| Gate | Controls | Fail action | Bypassable? |
-|---|---|---|---|
-| **0 — Name similarity** | Package name vs trusted allowlist — Levenshtein, prefix-addition, char-swap detection | Warn (≥80%) · Block (≥92%) | No |
-| **1 — Age** | Release timestamp vs 24 h / 72 h thresholds | Block / Hold | Age only — with CVE + MFA quorum |
-| **2 — Provenance** | Sigstore attestation present; `sourceRepositoryURI` matches allowlist | Block (mismatch) · Quarantine (missing) | No |
-| **2.5a — Orphan commits** | Release tag commit reachable from default branch via BFS graph walk | Block | No |
-| **2.5b — Workflow permissions** | `id-token: write` in publishing workflow without compensating controls | Quarantine | No |
-| **2.5c — PR provenance** | Release backed by merged PR with ≥ 1 approving reviewer | Block (no PR) · Quarantine (no review) | No |
-| **3 — OOB Trust** | OpenSSF Scorecard ≥ threshold; zero active CVEs via OSV + deps.dev + GHSA | Quarantine | No |
-| **4 — SBOM delta** | No unexpected transitive deps; lock file hash unchanged | Quarantine | No |
-| **5 — Behavioral sandbox** | gVisor/strace install-time execution; 34 named behavioral patterns (18 Miasma + 16 IronWorm); behavior-based not hash-based; active on Linux CI via strace | Block | No |
-
----
-
-## Attack Coverage
-
-### Miasma / Shai-Hulud — Red Hat Insights (2026)
-
-A compromised Red Hat employee GitHub account pushed orphan commits to two RedHatInsights repositories. A CI/CD workflow with `id-token: write` permission published backdoored versions of 32 packages via OIDC trusted publishing. Packages carried valid Sigstore signatures. Same pattern used against TanStack (170 packages) and Bitwarden CLI.
-
-| Attack step | Gate | Mechanism |
+| Risk | Framework coverage | Gates |
 |---|---|---|
-| Orphan commit pushed, bypassing PR | **2.5a** | BFS walk; tag commit unreachable from main → BLOCK |
-| No code review on malicious commit | **2.5c** | No merged PR → DIRECT_PUSH → BLOCK |
-| `id-token: write` exploited for OIDC publish | **2.5b** | Dangerous perm + no env protection → QUARANTINE |
-| Published from employee fork, not canonical org | **2** | `sourceRepositoryURI` mismatch → BLOCK |
-| Cloud credential harvesting (GCP/Azure IMDS) | **5** | MIASMA-001/002: IMDS network events → BLOCK |
-| OIDC token requested from install context | **5** | MIASMA-010: `token.actions.githubusercontent.com` → BLOCK |
-| Re-publish to npm from install script | **5** | PUBLISH-001: PUT to `registry.npmjs.org` → BLOCK |
-| Unique encrypted payload defeats hash IOCs | **5** | Behavior-matched, not hash-matched |
-
-### IronWorm — asteroiddao / Arweave ecosystem (JFrog, 2026-06-03)
-
-A Rust ELF binary (`tools/setup`, UPX-packed with overwritten magic bytes) is dropped via an npm `preinstall` hook. It deploys an eBPF kernel rootkit, harvests 86 environment variables and 20+ credential file paths, and beacons to a Tor hidden service. Self-propagates via stolen npm OIDC credentials. Backdates commits to obscure forensic timeline.
-
-| Attack step | Gate | Mechanism |
-|---|---|---|
-| Published from compromised `asteroiddao` account | **2** | `sourceRepositoryURI` mismatch → BLOCK |
-| Orphan commits with backdated timestamps | **2.5a** | Graph reachability — timestamps irrelevant → BLOCK |
-| No merged PR for release | **2.5c** | No PR → DIRECT_PUSH → BLOCK |
-| Rust ELF binary dropped via `preinstall` hook | **5** | IRONWORM-002b: `tools/setup` process event → BLOCK |
-| eBPF kernel rootkit load | **5** | IRONWORM-002: `BPF_PROG_LOAD` syscall → BLOCK (gVisor kernel boundary prevents rootkit escape) |
-| AI API key harvest (OpenAI, Anthropic, Gemini, Cohere) | **5** | IRONWORM-003: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` env access → BLOCK |
-| AWS / GCP / Azure / Vault credential theft | **5** | CRED-003/004 + IRONWORM-004: credential file reads → BLOCK |
-| SSH key theft | **5** | CRED-005: `/root/.ssh` file access → HIGH |
-| Exodus cryptocurrency wallet seed phrase theft | **5** | IRONWORM-005/005b: `~/.config/Exodus` file access → BLOCK |
-| Tor hidden service C2 beacon | **5** | IRONWORM-001: `.onion` network event → BLOCK (+ `--network=none`) |
-| temp.sh fallback exfil | **5** | IRONWORM-001c: `temp.sh` network event → BLOCK (+ `--network=none`) |
-| npm token theft for self-propagation | **5** | IRONWORM-006/006b: `.npmrc` read + `NPM_AUTH_TOKEN` env → BLOCK |
-| GitHub Actions workflow overwrite | **5** | IRONWORM-007: write to `.github/workflows/` → BLOCK |
-| Vault token theft | **5** | IRONWORM-004b: `VAULT_TOKEN` env access → BLOCK |
-
-### Structural defense
-
-Bypassing the framework requires compromising all of the following simultaneously:
-
-- The package registry's provenance attestation system (Sigstore/npm)
-- NVD, OSV, and GitHub Security Advisories (for the zero-day lane)
-- OpenSSF Scorecard and deps.dev (Gate 3)
-- The behavioral sandbox runtime (when Gate 5 sandbox runner is implemented — currently a strace/gVisor active)
-- The quorum approval process (2-of-3 named individuals with MFA)
-
----
-
-## Zero-Day Lane Circuit Breakers
-
-| Condition | Action |
-|---|---|
-| > 3 exception requests in 24 hours | Lane suspended pending CISO review |
-| Same requester files two exceptions within 48 hours | Second request escalates to CISO sign-off |
-| Any exception-deployed package receives a new CVE within 30 days | Lane suspended; retrospective triggered |
-| Monthly retrospective finds process violations | Lane suspended until remediation confirmed |
-
-Exception tokens expire after 6 hours. Re-approval required — no extensions.
-
----
-
-## Out-of-Band Trust Sources (Gate 3)
-
-All sources queried independently of the package repository. A compromised repo cannot influence these results. Individual source failures degrade the composite score but do not fail the gate outright — this is intentional resilient behaviour that prevents a single unavailable API from blocking all dependency updates.
-
-| Source | API endpoint | What it provides |
-|---|---|---|
-| OpenSSF Scorecard | `api.securityscorecards.dev` | Security hygiene score (CI, branch protection, code review, signing) |
-| deps.dev (Google) | `api.deps.dev/v3alpha/...` | Dependency graph, version velocity, known advisories |
-| OSV.dev | `api.osv.dev/v1/query` | Cross-ecosystem CVE database; patch version "fixed" list verification |
-| GitHub Security Advisories | `api.github.com/advisories` | Manually reviewed, high-confidence signal |
-| npm Advisory DB | `npm audit` | npm-specific compromise and vulnerability history |
-
----
-
-## Behavioral Patterns (Gate 5)
-
-34 named patterns across two confirmed attack families. Active on Linux CI via strace; gVisor provides strongest isolation. Matched by event type — encryption, obfuscation, and unique-per-infection payloads are irrelevant to behavioral matching.
-
-### Miasma / Shai-Hulud patterns (18)
-
-| Pattern ID | Category | Severity | Description |
-|---|---|---|---|
-| MIASMA-001 | Cloud metadata | CRITICAL | AWS/Azure IMDS request (169.254.169.254) |
-| MIASMA-002 | Cloud metadata | CRITICAL | GCP metadata server request |
-| MIASMA-003 | Cloud metadata | CRITICAL | Azure IMDS endpoint |
-| MIASMA-004 | Cloud metadata | HIGH | Kubernetes cluster API from install context |
-| MIASMA-010 | OIDC token | CRITICAL | GitHub Actions OIDC token endpoint |
-| MIASMA-011 | OIDC token | HIGH | Google Cloud OIDC token endpoint |
-| MIASMA-012 | OIDC token | HIGH | Azure AD OIDC token endpoint |
-| CRED-001 | Credential file | CRITICAL | Kubernetes service account token |
-| CRED-002 | Credential file | HIGH | GCP application default credentials |
-| CRED-003 | Credential file | HIGH | AWS credentials file |
-| CRED-004 | Credential file | HIGH | Azure CLI credentials |
-| CRED-005 | Credential file | HIGH | SSH private key directory |
-| PUBLISH-001 | Registry publish | CRITICAL | npm PUT during package install |
-| PUBLISH-002 | Registry publish | CRITICAL | PyPI upload during package install |
-| ENV-001 | Env var harvest | HIGH | Full environment variable enumeration |
-| ENV-002 | Env var harvest | CRITICAL | `OIDC_PACKAGES`, `GITHUB_TOKEN`, `CI_TOKEN` access |
-| PROC-001 | Process injection | HIGH | Base64-encoded command execution via shell |
-| PROC-002 | Process injection | CRITICAL | curl piped to shell from install script |
-| PROC-003 | Process injection | HIGH | Python eval/exec with encoded payload |
-
-### IronWorm patterns (16) — added 2026-06-05
-
-| Pattern ID | Category | Severity | Description |
-|---|---|---|---|
-| IRONWORM-001 | Encrypted exfil | CRITICAL | Tor .onion C2 connection |
-| IRONWORM-001b | Encrypted exfil | CRITICAL | Tor SOCKS port 9050/9150 |
-| IRONWORM-001c | Encrypted exfil | CRITICAL | temp.sh fallback exfil |
-| IRONWORM-002 | Kernel exploit | CRITICAL | eBPF `BPF_PROG_LOAD` syscall from install context |
-| IRONWORM-002b | Kernel exploit | CRITICAL | `tools/setup` Rust ELF binary execution |
-| IRONWORM-002c | Kernel exploit | CRITICAL | Rust ELF dropped to `/tmp/tools/` |
-| IRONWORM-003 | Env var harvest | CRITICAL | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `COHERE_API_KEY` |
-| IRONWORM-004 | Credential file | CRITICAL | HashiCorp Vault token file |
-| IRONWORM-004b | Env var harvest | CRITICAL | `VAULT_TOKEN`, `VAULT_ADDR` env access |
-| IRONWORM-005 | Crypto wallet | CRITICAL | Exodus wallet `/home/.config/Exodus` |
-| IRONWORM-005b | Crypto wallet | CRITICAL | Exodus wallet `/root/.config/Exodus` |
-| IRONWORM-005c | Crypto wallet | HIGH | Atomic wallet directory |
-| IRONWORM-006 | Credential file | HIGH | `.npmrc` auth token file read |
-| IRONWORM-006b | Env var harvest | CRITICAL | `NPM_AUTH_TOKEN`, `NODE_AUTH_TOKEN` env access |
-| IRONWORM-007 | Process injection | CRITICAL | Write to `.github/workflows/` — workflow hijack |
+| **CICD-SEC-1** Insufficient Flow Control | Age gate enforces mandatory hold. Zero-day lane requires CVE + 2-of-3 MFA quorum. No individual can accelerate unilaterally. | Gate 1, ZD lane |
+| **CICD-SEC-2** Inadequate IAM | Gate 2.5b audits `id-token: write`. Gate 2.5c enforces reviewer counts. ZD quorum enforces separation of duties. | Gates 2.5b, 2.5c, ZD lane |
+| **CICD-SEC-3** Dependency Chain Abuse | Core mission. Gates 1-5 validate every dependency update. | Gates 1-5 |
+| **CICD-SEC-4** Poisoned Pipeline Execution | Gate 2.5a detects orphan commits. Gate 2.5c confirms PR review. Gate 2.5b flags dangerous permissions. | Gates 2.5a, 2.5b, 2.5c |
+| **CICD-SEC-5** Insufficient PBAC | Gate 2.5b enforces pipeline-based access controls on publishing workflows. | Gate 2.5b |
+| **CICD-SEC-6** Insufficient Credential Hygiene | Gate 5 detects credential harvesting at install time (AWS/GCP/Azure, Vault, npm, AI API keys). | Gates 2, 5 |
+| **CICD-SEC-7** Insecure System Configuration | Gate 2.5b checks for missing branch protection, CODEOWNERS, environment protection rules. | Gate 2.5b |
+| **CICD-SEC-8** Ungoverned 3rd Party Services | Gate 3 queries OpenSSF, OSV, deps.dev, GHSA independently. Gate 4 SBOM delta catches unexpected transitive deps. | Gates 3, 4 |
+| **CICD-SEC-9** Improper Artifact Integrity | Gate 2 verifies Sigstore/GPG signatures and `sourceRepositoryURI`. Gate 4 pins hashes. Gate 2.5a verifies tag reachability. | Gates 2, 2.5a, 4 |
+| **CICD-SEC-10** Insufficient Logging | Every gate decision emits a structured SIEM event. Zero-day exceptions require ticket linkage. Full non-repudiable audit trail. | All gates, ZD lane |
 
 ---
 
@@ -523,84 +660,57 @@ All sources queried independently of the package repository. A compromised repo 
 
 ```
 oss-trust-framework/
-├── oss_trust_framework/            # Installable Python package
-│   ├── name_similarity/
-│   │   └── checker.py              # Gate 0 — typosquat/impersonation detection (3 algorithms)
-│   ├── age_check/
-│   │   └── checker.py              # Gate 1 — multi-ecosystem registry timestamp fetching
-│   ├── signature/
-│   │   ├── provenance.py           # Gate 2 — npm/PyPI attestation + publisher repo allowlist
-│   │   └── gpg.py                  # Gate 2 — GPG fallback for non-Sigstore ecosystems (keyring population required)
-│   ├── cicd_audit/                 # Gate 2.5 — CI/CD pipeline audit (Miasma/IronWorm class)
-│   │   ├── orphan_commits.py       # 2.5a — BFS commit graph walk; detects direct pushes
-│   │   ├── workflow_permissions.py # 2.5b — dangerous perm detection + compensating controls
-│   │   └── pr_provenance.py        # 2.5c — release must trace to reviewed merged PR
-│   ├── trust/
-│   │   └── aggregator.py           # Gate 3 — concurrent OpenSSF/OSV/deps.dev/GHSA queries
-│   ├── sbom/
-│   │   └── differ.py               # Gate 4 — CycloneDX SBOM delta + hash pin (syft active, baselines pinned)
-│   ├── sandbox/
-│   │   ├── behavioral_patterns.py  # Gate 5 — 34 patterns: 18 Miasma + 16 IronWorm (COMPLETE)
-│   │   └── runner.py               # Gate 5 — sandbox executor (strace/gVisor/audit backends)
-│   ├── zeroday/
-│   │   └── validator.py            # CVE machine-validation + quorum approval manager
-│   ├── config.py                   # Config loader and quorum manager factory
-│   └── pipeline/
-│       ├── orchestrator.py         # Full pipeline runner; standard and zero-day routing
-│       └── cli.py                  # oss-trust check / zeroday request/approve/status
-├── tests/
-│   ├── conftest.py                 # Shared fixtures (quorum_manager, attack event chains)
-│   ├── test_gate1_age.py           # 11 tests — age threshold boundaries, custom thresholds
-│   ├── test_gate3_trust.py         # 6 tests  — OOB trust aggregation, source resilience
-│   ├── test_gate5_behavioral.py    # 50 tests — all 34 patterns individually + utilities
-│   ├── test_zeroday_lane.py        # 23 tests — full quorum lifecycle, MFA, expiry
-│   ├── test_integration.py         # 10 tests — cross-gate scenarios, regression tests
-│   └── test_scenarios.py           # 18 tests — original demo scenarios
-├── config/
-│   ├── pipeline.yaml               # All thresholds, gate config, circuit breakers
-│   └── trusted_publishers.yaml     # Publisher repo allowlist
-├── docs/
-│   └── index.html                  # Full documentation site (GitHub Pages)
-├── .github/
-│   └── workflows/
-│       └── dep-trust-check.yml     # PR gate: auto-runs on lock file changes
-├── .env.example
-├── pyproject.toml
-├── CONTRIBUTING.md
-└── LICENSE
++-- oss_trust_framework/            # Installable Python package (pip install oss-trust-framework)
+|   +-- check_all.py                # oss-trust check-all command
+|   +-- name_similarity/checker.py  # Gate 0 -- typosquat detection
+|   +-- age_check/checker.py        # Gate 1 -- multi-ecosystem age check
+|   +-- signature/provenance.py     # Gate 2 -- Sigstore attestation + allowlist
+|   +-- cicd_audit/                 # Gate 2.5 -- CI/CD pipeline audit
+|   +-- trust/aggregator.py         # Gate 3 -- OpenSSF/OSV/deps.dev/GHSA
+|   +-- sbom/differ.py              # Gate 4 -- SBOM delta + hash pin
+|   +-- sandbox/                    # Gate 5 -- behavioral sandbox (34 patterns)
+|   +-- zeroday/validator.py        # CVE validation + quorum approval
+|   +-- pipeline/orchestrator.py    # Full pipeline runner
+|   +-- cli.py                      # oss-trust CLI entry point
++-- scripts/check_all.py            # Multi-ecosystem batch checker (all 7 registries)
++-- check_all.py                    # Repo-root shim (python check_all.py)
++-- config/
+|   +-- pipeline.yaml               # Gate thresholds and circuit breakers
+|   +-- trusted_publishers.yaml     # Publisher allowlist (100+ packages, 7 ecosystems)
++-- requirements.txt                # Framework runtime deps (pinned, Dependabot-clean)
++-- framework_deps.txt              # Self-validation dep declarations
++-- tests/                          # 131 tests, all offline
++-- docs/index.html                 # Full documentation site
++-- .github/workflows/
+    +-- dep-trust-check.yml         # PR gate: auto-runs on lock file changes
+    +-- publish.yml                 # PyPI publish on GitHub Release
 ```
 
 ---
-
-## Supply chain integrity vs runtime monitoring
-
-The OSS Trust Framework is a **supply chain integrity** tool. It validates dependencies before they enter your environment. This is a fundamentally different control than runtime security monitoring, and the two are complementary — not competing.
-
-| Threat | Framework coverage | What you also need |
-|---|---|---|
-| Malicious install script (IronWorm preinstall hook) | Gate 5 — behavioral sandbox (when runner implemented) | — |
-| Compromised publisher account (Miasma) | Gates 2, 2.5, 5 | — |
-| Typosquat / impersonation (postmark-mcp-evil) | Gate 0 — name similarity | — |
-| Known CVE in dependency | Gate 3 — OOB trust aggregation | — |
-| **Runtime exfiltration** (MCP server BCC'ing email) | **Not covered** | Runtime monitoring (Falco, Tetragon) |
-| **Deferred activation** (library beacons after condition met) | **Not covered** | Runtime monitoring |
-| **Semantic impersonation** (secure-requests impersonating requests) | **Not covered** — low string similarity | Manual allowlist review |
-
-The postmark-mcp impersonation attack (September 2025, first in-the-wild malicious MCP server) is a good illustration of this boundary. Gate 0 would have flagged the name similarity. But the BCC behavior itself — triggered at runtime when the server handled email — is outside install-time sandboxing scope. Both layers are necessary.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-**Implemented gates:** 0 (name similarity), 1 (age), 2 (provenance), 2.5a/b/c (CI/CD audit), 3 (OOB trust), zero-day lane.
+All PRs must pass the framework's own CI gate (`dep-trust-check.yml`). Zero-day lane changes require CISO sign-off.
 
-**Gate 4:** Fully active — syft installed, cross-platform pip install --target + dir: approach, baselines pinned for all framework dependencies. **Gate 2 GPG fallback:** Implemented — keyring population required for packages using GPG instead of Sigstore (increasingly rare).
+Contributions welcome — open issues for feature requests, additional behavioral patterns, or ecosystem support.
 
-**All core gates are implemented and operational.** Gate 5 uses strace on Linux CI and supports gVisor for strongest isolation. See [docs/gate5_gvisor_setup.md](docs/gate5_gvisor_setup.md) for gVisor setup instructions.
+---
 
-Contributions welcome — open issues for feature requests, additional behavioral patterns, or ecosystem support (Cargo, Go, Maven).
+## Supply chain integrity vs runtime monitoring
 
-All PRs must pass the framework's own CI gate. Zero-day lane changes require CISO sign-off.
+The framework validates dependencies **before they enter your environment**. It is not a runtime security monitor.
+
+| Threat | Covered? | If not, use |
+|---|---|---|
+| Malicious install script (IronWorm preinstall hook) | Gate 5 | — |
+| Compromised publisher account (Miasma) | Gates 2, 2.5, 5 | — |
+| Typosquat / impersonation | Gate 0 | — |
+| Known CVE in dependency | Gate 3 | — |
+| Runtime exfiltration (MCP server BCC'ing email) | No | Falco, Tetragon |
+| Deferred activation (beacons after condition met) | No | Runtime monitoring |
+| Semantic impersonation (low string similarity) | No | Manual allowlist review |
 
 ---
 
@@ -625,4 +735,3 @@ MIT — see [LICENSE](LICENSE).
 - [npm provenance attestations](https://docs.npmjs.com/generating-provenance-statements)
 - [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
 - [gVisor container sandbox](https://gvisor.dev)
-- [Socket.dev supply chain analysis](https://socket.dev)
