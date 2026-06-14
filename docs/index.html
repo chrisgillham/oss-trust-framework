@@ -1207,12 +1207,35 @@ oss-trust check-all --manifest package.json --no-interactive --output json 2>$nu
 ]</pre></div>
       </div>
       <div style="margin-top:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;font-size:0.83rem;color:var(--text2)">
-        <strong style="color:var(--text)">Interactive allowlist population</strong><br>
-        Run without <code>--no-interactive</code> and the tool prompts you for each unlisted package, auto-looks up the canonical GitHub repo, and writes entries to <code>config/trusted_publishers.yaml</code> for Gate 2 provenance verification.
+        <strong style="color:var(--text)">Step 2 — Populate the trusted publishers allowlist</strong><br><br>
+        The allowlist maps package names to their canonical GitHub source repo. Gate 2 uses this to verify a package's provenance attestation points to the right repo — not a compromised fork or employee account (the Miasma attack pattern).<br><br>
+        Run <code>oss-trust check-all</code> <strong>without</strong> <code>--no-interactive</code> and the tool prompts you for each unlisted package, auto-looks up the canonical GitHub repo, and writes the entry directly to <code>config/trusted_publishers.yaml</code>:
+      </div>
+      <div class="code-block" style="margin-top:0.75rem">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — interactive allowlist population</div></div>
+        <div class="code-body"><pre>oss-trust check-all --manifest package.json
+
+<span class="tok-cm"># For each package not yet in trusted_publishers.yaml:</span>
+
+<span class="tok-str">express@4.18.2 is not in trusted_publishers.yaml</span>
+  Looking up canonical repo... found: <span class="tok-kw">expressjs/express</span>
+
+  [1] Add to allowlist only
+  [2] Add to allowlist + require_attestation (block if no Sigstore attestation)
+  [s] Skip
+  [q] Quit interactive mode
+
+  Choice [1/2/s/q]: <span class="tok-kw">1</span>
+  <span class="tok-cm">&#x2705; Added npm/express: expressjs/express</span>
+  <span class="tok-cm">   config/trusted_publishers.yaml saved.</span>
+
+<span class="tok-cm"># Choose [2] for high-value packages like auth libs and crypto --
+# Gate 2 will then BLOCK the package entirely if no Sigstore attestation is found,
+# rather than just quarantining it.</span></pre></div>
       </div>
     </div>
 
-    <div id="zeroday" class="tab-panel">
+    <div id="zeroday class="tab-panel">
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — zero-day expedited lane</div></div>
         <div class="code-body"><pre><span class="tok-cm"># Step 1: Request an expedited exception</span>

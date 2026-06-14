@@ -1,8 +1,7 @@
 # framework_deps.txt
 # OSS Trust Framework's own internal dependency declarations.
-# These are the packages the framework itself depends on — used by oss-trust check-all
-# to self-validate the framework supply chain on every run.
-# Format: [dev:]ECOSYSTEM:package==version   (ecosystem prefix required)
+# Used by oss-trust check-all to self-validate the framework supply chain.
+# Format: [dev:]ECOSYSTEM:package==version
 #
 # Last updated: 2026-06-13
 # Versions verified clean against Dependabot + OSV as of this date.
@@ -16,7 +15,7 @@ PyPI:pyotp==2.9.0
 PyPI:cryptography==46.0.7
 PyPI:rich==13.9.4
 
-# Dev dependencies (checked in CI, skipped in --prod-only mode)
+# Dev dependencies (skipped in --prod-only mode)
 dev:PyPI:pytest==8.3.5
 dev:PyPI:pytest-asyncio==0.24.0
 dev:PyPI:pytest-cov==5.0.0
