@@ -26,7 +26,7 @@ dependencies = [
     "click>=8.1.8",
     "pydantic>=2.9.2",
     "pyotp>=2.9.0",
-    "cryptography>=44.0.1",   # <44.0.1 vulnerable: statically linked OpenSSL (CVE-2024-9143 + OpenSSL 2025-02-11)
+    "cryptography>=46.0.5",   # <46.0.5 vulnerable: SECT curve subgroup attack + DNS name constraint bypass
                               # <46.0.5 vulnerable: incomplete DNS name constraint enforcement
                               # <46.0.6 patched for all three; 44.0.1 covers the OpenSSL wheel issues
     "rich>=13.9.4",

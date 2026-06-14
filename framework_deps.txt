@@ -13,7 +13,7 @@ PyPI:python-dotenv==1.2.2
 PyPI:click==8.1.8
 PyPI:pydantic==2.9.2
 PyPI:pyotp==2.9.0
-PyPI:cryptography==44.0.2
+PyPI:cryptography==46.0.7
 PyPI:rich==13.9.4
 
 # Dev dependencies (checked in CI, skipped in --prod-only mode)
