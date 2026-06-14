@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oss-trust-framework"
-version = "0.6.0"
+version = "0.5.1"
 description = "Multi-gate open source supply chain trust validation pipeline with zero-day expedited lane"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -20,24 +20,26 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "httpx>=0.27",
-    "pyyaml>=6.0",
-    "python-dotenv>=1.0",
-    "click>=8.1",
-    "pydantic>=2.0",
-    "pyotp>=2.9",
-    "cryptography>=42.0",
-    "rich>=13.0",
+    "httpx>=0.27.2",
+    "pyyaml>=6.0.2",
+    "python-dotenv>=1.2.2",   # <1.2.2 vulnerable: symlink following in set_key (arbitrary file overwrite)
+    "click>=8.1.8",
+    "pydantic>=2.9.2",
+    "pyotp>=2.9.0",
+    "cryptography>=44.0.1",   # <44.0.1 vulnerable: statically linked OpenSSL (CVE-2024-9143 + OpenSSL 2025-02-11)
+                              # <46.0.5 vulnerable: incomplete DNS name constraint enforcement
+                              # <46.0.6 patched for all three; 44.0.1 covers the OpenSSL wheel issues
+    "rich>=13.9.4",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.24",
     "pytest-cov>=5.0",
     "respx>=0.21",
-    "ruff>=0.4",
-    "mypy>=1.10",
+    "ruff>=0.6",
+    "mypy>=1.11",
 ]
 
 [project.scripts]
