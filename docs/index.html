@@ -547,7 +547,7 @@ footer {
   <div class="hero-grid"></div>
   <div class="hero-glow"></div>
   <div class="hero-content">
-    <div class="hero-badge">v0.5 — All Gates Operational · Gate 5 Active via strace</div>
+    <div class="hero-badge">v0.6.1 — All Gates Operational · Multi-Ecosystem · check-all command</div>
     <h1>Stop supply chain<br>attacks <em>before</em><br>they ship.</h1>
     <p class="hero-sub">A five-gate validation pipeline that intercepts malicious open source packages — including attacks that pass valid cryptographic signatures — before they reach your application.</p>
     <div class="hero-actions">
@@ -704,7 +704,7 @@ footer {
               <div class="gate-desc">Is the release &lt; 72 h old? Hard block at 24 h.</div>
               <div class="gate-tags">
                 <span class="gate-tag">PyPI</span><span class="gate-tag">npm</span>
-                <span class="gate-tag">Cargo</span><span class="gate-tag">Go</span>
+                <span class="gate-tag">Cargo</span><span class="gate-tag">Go</span><span class="gate-tag">Maven</span><span class="gate-tag">NuGet</span><span class="gate-tag">RubyGems</span>
               </div>
             </div>
           </div>
@@ -847,7 +847,7 @@ footer {
         <div class="gate-detail-body">
           <p>Malicious releases depend on automated ingestion speed. A 24-hour hard block breaks that race entirely — a package that can't reach your fleet for a day is a package the community has time to notice, flag, and revoke.</p>
           <div>
-            <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">Queries canonical registry API for publication timestamp (PyPI, npm, crates.io, Go proxy)</span></div>
+            <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">Queries canonical registry API for publication timestamp across all 7 ecosystems: PyPI, npm, Cargo (crates.io), Go (proxy.golang.org), Maven (search.maven.org), NuGet (api.nuget.org), RubyGems</span></div>
             <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">Hard block: releases &lt; 24 hours old — no exceptions without a filed CVE</span></div>
             <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">Soft hold: releases 24–72 hours old — human approval required</span></div>
             <div class="gate-check"><span class="gate-check-icon">▸</span><span class="gate-check-text">Zero-day bypass: routes to expedited lane when CVE is machine-verified</span></div>
@@ -1059,12 +1059,13 @@ footer {
       <button class="tab-btn" onclick="showTab('github-source')">GitHub source</button>
       <button class="tab-btn" onclick="showTab('actions')">GitHub Actions</button>
       <button class="tab-btn" onclick="showTab('check')">oss-trust check</button>
+      <button class="tab-btn" onclick="showTab('check-all')">oss-trust check-all</button>
       <button class="tab-btn" onclick="showTab('zeroday')">zero-day lane</button>
     </div>
 
     <div id="pip" class="tab-panel active">
       <div style="background:var(--amber-soft);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
-        <strong style="color:var(--amber)">Note:</strong> Now available on PyPI — install with a single command.
+        <strong style="color:var(--green)">v0.6.1</strong> — Multi-ecosystem support (npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems) + <code>oss-trust check-all</code> command.
       </div>
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal</div></div>
@@ -1073,7 +1074,7 @@ pip install oss-trust-framework
 
 <span class="tok-cm"># Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.5.1</span>
+<span class="tok-cm"># oss-trust, version 0.6.1</span>
 
 <span class="tok-cm"># Check a package immediately</span>
 oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
@@ -1091,7 +1092,7 @@ pip install oss-trust-framework
 
 <span class="tok-cm"># Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.5.1</span>
+<span class="tok-cm"># oss-trust, version 0.6.1</span>
 
 <span class="tok-cm"># Check a package</span>
 oss-trust check   --package requests   --version 2.33.0   --ecosystem PyPI   --github-repo psf/requests</pre></div>
@@ -1159,6 +1160,58 @@ oss-trust check --package Pillow --version 9.0.0 --ecosystem PyPI
       </div>
     </div>
 
+
+    <div id="check-all" class="tab-panel">
+      <div style="background:var(--accent-glow);border:1px solid rgba(74,158,255,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--accent)">New in v0.6.0</strong> — Batch-check all packages in a project at once. Supports npm, PyPI, Cargo, Go, Maven, NuGet, and RubyGems.
+      </div>
+      <div style="background:var(--amber-soft);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--amber)">Important:</strong> <code>oss-trust check-all</code> with no arguments only auto-detects <code>requirements.txt</code> (Python). For npm, Rust, Ruby, and .NET projects you must pass <code>--manifest</code>.
+      </div>
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — check all packages in a project</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># npm project</span>
+oss-trust check-all --manifest package.json
+
+<span class="tok-cm"># Python project (requirements.txt auto-detected)</span>
+oss-trust check-all
+
+<span class="tok-cm"># Rust / Ruby / .NET</span>
+oss-trust check-all --manifest Cargo.toml
+oss-trust check-all --manifest Gemfile.lock
+oss-trust check-all --manifest packages.config
+
+<span class="tok-cm"># Mixed stack — multiple manifests at once</span>
+oss-trust check-all --manifest package.json --manifest requirements.txt
+
+<span class="tok-cm"># CI mode — non-interactive, JSON output, fail on hold</span>
+oss-trust check-all --manifest package.json --no-interactive --fail-on-hold --output json > trust-report.json
+
+<span class="tok-cm"># Windows PowerShell — set UTF-8 first to avoid encoding errors</span>
+$env:PYTHONUTF8 = "1"
+oss-trust check-all --manifest package.json --no-interactive --output json 2>$null > trust-report.json</pre></div>
+      </div>
+      <div class="code-block" style="margin-top:1rem">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">trust-report.json — example output</div></div>
+        <div class="code-body"><pre>[
+  {
+    <span class="tok-str">"ecosystem"</span>: <span class="tok-str">"npm"</span>,
+    <span class="tok-str">"package"</span>: <span class="tok-str">"express"</span>,
+    <span class="tok-str">"version"</span>: <span class="tok-str">"4.18.2"</span>,
+    <span class="tok-str">"source"</span>: <span class="tok-str">"package.json"</span>,
+    <span class="tok-str">"in_allowlist"</span>: <span class="tok-kw">true</span>,
+    <span class="tok-str">"age_hours"</span>: <span class="tok-cm">32261.3</span>,
+    <span class="tok-str">"gate1_decision"</span>: <span class="tok-str">"pass"</span>,
+    <span class="tok-str">"outcome"</span>: <span class="tok-str">"PASS"</span>
+  }
+]</pre></div>
+      </div>
+      <div style="margin-top:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--text)">Interactive allowlist population</strong><br>
+        Run without <code>--no-interactive</code> and the tool prompts you for each unlisted package, auto-looks up the canonical GitHub repo, and writes entries to <code>config/trusted_publishers.yaml</code> for Gate 2 provenance verification.
+      </div>
+    </div>
+
     <div id="zeroday" class="tab-panel">
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — zero-day expedited lane</div></div>
@@ -1223,7 +1276,11 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
     <div id="dev-win" class="tab-panel active">
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">PowerShell</div></div>
-        <div class="code-body"><pre><span class="tok-cm"># 1. Clone the framework repo</span>
+        <div class="code-body"><pre><span class="tok-cm"># Windows users: set UTF-8 mode to avoid encoding errors with oss-trust output</span>
+$env:PYTHONUTF8 = <span class="tok-str">"1"</span>
+<span class="tok-cm"># Make permanent: Add-Content $PROFILE "`n`$env:PYTHONUTF8 = '1'"</span>
+
+<span class="tok-cm"># 1. Clone the framework repo</span>
 git clone https://github.com/chrisgillham/oss-trust-framework
 cd oss-trust-framework
 
@@ -1236,7 +1293,7 @@ pip install -e ".[dev]"
 
 <span class="tok-cm"># 4. Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.5.1</span>
+<span class="tok-cm"># oss-trust, version 0.6.1</span>
 
 <span class="tok-cm"># 5. Copy and configure environment</span>
 cp .env.example .env
@@ -1259,7 +1316,7 @@ pip install -e ".[dev]"
 
 <span class="tok-cm"># 4. Verify</span>
 oss-trust --version
-<span class="tok-cm"># oss-trust, version 0.5.1</span>
+<span class="tok-cm"># oss-trust, version 0.6.1</span>
 
 <span class="tok-cm"># 5. Copy and configure environment</span>
 cp .env.example .env</pre></div>
@@ -1362,6 +1419,58 @@ oss-trust check \
 <span class="tok-cm"># JSON output for scripting</span>
 oss-trust check --package requests --version 2.32.3 \
   --ecosystem PyPI --output json | jq .outcome</pre></div>
+      </div>
+    </div>
+
+
+    <div id="check-all" class="tab-panel">
+      <div style="background:var(--accent-glow);border:1px solid rgba(74,158,255,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--accent)">New in v0.6.0</strong> — Batch-check all packages in a project at once. Supports npm, PyPI, Cargo, Go, Maven, NuGet, and RubyGems.
+      </div>
+      <div style="background:var(--amber-soft);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--amber)">Important:</strong> <code>oss-trust check-all</code> with no arguments only auto-detects <code>requirements.txt</code> (Python). For npm, Rust, Ruby, and .NET projects you must pass <code>--manifest</code>.
+      </div>
+      <div class="code-block">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — check all packages in a project</div></div>
+        <div class="code-body"><pre><span class="tok-cm"># npm project</span>
+oss-trust check-all --manifest package.json
+
+<span class="tok-cm"># Python project (requirements.txt auto-detected)</span>
+oss-trust check-all
+
+<span class="tok-cm"># Rust / Ruby / .NET</span>
+oss-trust check-all --manifest Cargo.toml
+oss-trust check-all --manifest Gemfile.lock
+oss-trust check-all --manifest packages.config
+
+<span class="tok-cm"># Mixed stack — multiple manifests at once</span>
+oss-trust check-all --manifest package.json --manifest requirements.txt
+
+<span class="tok-cm"># CI mode — non-interactive, JSON output, fail on hold</span>
+oss-trust check-all --manifest package.json --no-interactive --fail-on-hold --output json > trust-report.json
+
+<span class="tok-cm"># Windows PowerShell — set UTF-8 first to avoid encoding errors</span>
+$env:PYTHONUTF8 = "1"
+oss-trust check-all --manifest package.json --no-interactive --output json 2>$null > trust-report.json</pre></div>
+      </div>
+      <div class="code-block" style="margin-top:1rem">
+        <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">trust-report.json — example output</div></div>
+        <div class="code-body"><pre>[
+  {
+    <span class="tok-str">"ecosystem"</span>: <span class="tok-str">"npm"</span>,
+    <span class="tok-str">"package"</span>: <span class="tok-str">"express"</span>,
+    <span class="tok-str">"version"</span>: <span class="tok-str">"4.18.2"</span>,
+    <span class="tok-str">"source"</span>: <span class="tok-str">"package.json"</span>,
+    <span class="tok-str">"in_allowlist"</span>: <span class="tok-kw">true</span>,
+    <span class="tok-str">"age_hours"</span>: <span class="tok-cm">32261.3</span>,
+    <span class="tok-str">"gate1_decision"</span>: <span class="tok-str">"pass"</span>,
+    <span class="tok-str">"outcome"</span>: <span class="tok-str">"PASS"</span>
+  }
+]</pre></div>
+      </div>
+      <div style="margin-top:1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem;font-size:0.83rem;color:var(--text2)">
+        <strong style="color:var(--text)">Interactive allowlist population</strong><br>
+        Run without <code>--no-interactive</code> and the tool prompts you for each unlisted package, auto-looks up the canonical GitHub repo, and writes entries to <code>config/trusted_publishers.yaml</code> for Gate 2 provenance verification.
       </div>
     </div>
 
