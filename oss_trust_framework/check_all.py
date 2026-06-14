@@ -28,6 +28,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+from urllib.parse import urlparse
+
 from oss_trust_framework.age_check.checker import check_release_age, AgeDecision
 
 console = Console()
@@ -40,6 +42,42 @@ REPO_LOOKUP: dict[str, str] = {
     "RubyGems": "https://rubygems.org/api/v1/gems/{package}.json",
     "NuGet":    "https://api.nuget.org/v3/registration5-semver1/{package}/index.json",
 }
+
+# ── Secure URL parsing ────────────────────────────────────────────────────────
+
+def _extract_github_repo(url: str) -> str | None:
+    """
+    Safely extract 'owner/repo' from a GitHub URL.
+
+    Uses urllib.parse to validate the hostname exactly — prevents
+    CodeQL CWE-20 'Incomplete URL substring sanitization' where a URL
+    like https://evil.com/github.com/owner/repo would bypass a naive
+    ``"github.com" in url`` substring check.
+
+    Returns 'owner/repo' string or None if the URL is not a valid
+    github.com URL with at least owner and repo path components.
+    """
+    if not url:
+        return None
+    # Strip common prefixes that appear in npm/cargo registry metadata
+    url = re.sub(r"^git\+|\.git$", "", url.strip())
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    # Exact hostname match only — no substring tricks
+    if parsed.hostname not in ("github.com", "www.github.com"):
+        return None
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return None
+    # Validate owner/repo contain only safe characters
+    owner, repo = parts[0], parts[1]
+    if not re.match(r"^[A-Za-z0-9_.\-]+$", owner):
+        return None
+    if not re.match(r"^[A-Za-z0-9_.\-]+$", repo):
+        return None
+    return f"{owner}/{repo}"
 
 # ── File resolution ───────────────────────────────────────────────────────────
 
@@ -211,22 +249,18 @@ async def fetch_canonical_repo(ecosystem: str, package: str) -> str | None:
                 if resp.status_code == 200:
                     urls = resp.json().get("info", {}).get("project_urls") or {}
                     for key in ("Source", "Repository", "Homepage", "Source Code"):
-                        url = urls.get(key, "")
-                        if "github.com" in url:
-                            parts = url.rstrip("/").split("github.com/")[-1].split("/")
-                            if len(parts) >= 2:
-                                return f"{parts[0]}/{parts[1]}"
+                        repo = _extract_github_repo(urls.get(key, ""))
+                        if repo:
+                            return repo
 
             elif ecosystem == "npm":
                 resp = await client.get(REPO_LOOKUP["npm"].format(package=package))
                 if resp.status_code == 200:
-                    repo = resp.json().get("repository", {})
-                    url = repo.get("url", "") if isinstance(repo, dict) else str(repo)
-                    url = re.sub(r"^git\+|\.git$", "", url)
-                    if "github.com" in url:
-                        parts = url.rstrip("/").split("github.com/")[-1].split("/")
-                        if len(parts) >= 2:
-                            return f"{parts[0]}/{parts[1]}"
+                    repo_field = resp.json().get("repository", {})
+                    url = repo_field.get("url", "") if isinstance(repo_field, dict) else str(repo_field)
+                    repo = _extract_github_repo(url)
+                    if repo:
+                        return repo
 
             elif ecosystem == "Cargo":
                 resp = await client.get(
@@ -234,22 +268,19 @@ async def fetch_canonical_repo(ecosystem: str, package: str) -> str | None:
                     headers={"User-Agent": "oss-trust-framework/0.5"},
                 )
                 if resp.status_code == 200:
-                    repo = resp.json().get("crate", {}).get("repository", "")
-                    if repo and "github.com" in repo:
-                        parts = repo.rstrip("/").split("github.com/")[-1].split("/")
-                        if len(parts) >= 2:
-                            return f"{parts[0]}/{parts[1]}"
+                    repo_url = resp.json().get("crate", {}).get("repository", "")
+                    repo = _extract_github_repo(repo_url)
+                    if repo:
+                        return repo
 
             elif ecosystem == "RubyGems":
                 resp = await client.get(REPO_LOOKUP["RubyGems"].format(package=package))
                 if resp.status_code == 200:
                     data = resp.json()
                     for field in ("source_code_uri", "homepage_uri"):
-                        url = data.get(field, "") or ""
-                        if "github.com" in url:
-                            parts = url.rstrip("/").split("github.com/")[-1].split("/")
-                            if len(parts) >= 2:
-                                return f"{parts[0]}/{parts[1]}"
+                        repo = _extract_github_repo(data.get(field, "") or "")
+                        if repo:
+                            return repo
     except Exception:
         pass
     return None
