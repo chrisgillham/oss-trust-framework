@@ -547,7 +547,7 @@ footer {
   <div class="hero-grid"></div>
   <div class="hero-glow"></div>
   <div class="hero-content">
-    <div class="hero-badge">v0.6.1 — All Gates Operational · Multi-Ecosystem · check-all command</div>
+    <div class="hero-badge">v0.6.1 — All Gates Operational · Multi-Ecosystem · See June 2026 GitHub hardening context ↓</div>
     <h1>Stop supply chain<br>attacks <em>before</em><br>they ship.</h1>
     <p class="hero-sub">A five-gate validation pipeline that intercepts malicious open source packages — including attacks that pass valid cryptographic signatures — before they reach your application.</p>
     <div class="hero-actions">
@@ -573,6 +573,31 @@ footer {
         <div class="stat-label">Single points of failure</div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ── GITHUB SECURE-BY-DEFAULT WAVE BANNER ── -->
+<div style="background:linear-gradient(135deg,rgba(74,158,255,0.08),rgba(61,214,140,0.06));border-top:1px solid rgba(74,158,255,0.2);border-bottom:1px solid rgba(74,158,255,0.15);padding:1.75rem 2rem;">
+  <div class="container">
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.1rem;flex-wrap:wrap;">
+      <div style="background:rgba(74,158,255,0.15);border:1px solid rgba(74,158,255,0.3);border-radius:8px;padding:0.3rem 0.7rem;font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--accent);white-space:nowrap;">JUN–JUL 2026</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;color:var(--text);font-size:1rem;">GitHub's "Secure by Default" Wave — What It Covers, and What It Doesn't</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--accent);margin-bottom:0.5rem;">① actions/checkout v7 · June 18</div>
+        <p style="font-size:0.83rem;color:var(--text2);line-height:1.6;margin:0;">Blocks <code style="font-size:0.85em;color:var(--teal)">pull_request_target</code> from fetching unreviewed fork code by default — closing the pwn request vector that hit TanStack (170 packages). Overlaps with Gate 2.5a/2.5c. Does <strong style="color:var(--text)">not</strong> apply to Miasma (no fork used) or IronWorm (fires inside published packages). Gates 0–1–2–3–4–5 unaffected. <a href="https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/" target="_blank" style="color:var(--accent)">Changelog →</a></p>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--green);margin-bottom:0.5rem;">② npm v12 allowScripts off · July 2026</div>
+        <p style="font-size:0.83rem;color:var(--text2);line-height:1.6;margin:0;"><code style="font-size:0.85em;color:var(--teal)">preinstall</code> / <code style="font-size:0.85em;color:var(--teal)">postinstall</code> scripts blocked unless explicitly allowlisted. Git deps and remote URL deps blocked too. A pre-Gate-5 complement for npm. Does <strong style="color:var(--text)">not</strong> cover PyPI, Cargo, Maven, NuGet, RubyGems, or Gates 0–1–2–3–4. Compromised <em>approved</em> packages and publish-pipeline attacks remain live threats. <a href="https://github.blog/changelog/2026-06-09-upcoming-breaking-changes-for-npm-v12/" target="_blank" style="color:var(--accent)">Changelog →</a></p>
+      </div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--purple);margin-bottom:0.5rem;">③ Actions 2026 Roadmap · In Progress</div>
+        <p style="font-size:0.83rem;color:var(--text2);line-height:1.6;margin:0;">Workflow SHA dependency locking, Layer-7 egress firewall, scoped secrets, centralized policy rulesets. CI/CD pipeline hardening — complements Gate 2.5. Does <strong style="color:var(--text)">not</strong> address the package-level threat surface covered by Gates 0–1–2–3–4–5 or the zero-day lane. <a href="https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/" target="_blank" style="color:var(--accent)">Roadmap →</a></p>
+      </div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--text3);margin-top:0.9rem;line-height:1.5;">These are meaningful platform-level improvements that establish a safer floor. The OSS Trust Framework provides the pre-ingestion, multi-gate validation layer across all 7 ecosystems that platform defaults alone cannot cover.</p>
   </div>
 </div>
 
@@ -1832,6 +1857,11 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
     <div class="section-title">Built for security architects.<br>Deployable by DevSecOps.</div>
     <div class="benefits-grid">
       <div class="benefit-card">
+        <div class="benefit-icon" style="background:rgba(74,158,255,0.12);">🛡️</div>
+        <h3>Complements GitHub's 2026 security wave</h3>
+        <p>GitHub's June–July 2026 hardening — <code>actions/checkout</code> v7 (pwn request block) and npm v12 (<code>allowScripts</code> off by default) — closes two attack paths that Gate 2.5 and Gate 5 also address. But Miasma uses no fork. IronWorm compromises approved packages. npm v12 covers only npm. Gates 0–1–2–3–4 and the zero-day lane have no platform-level equivalent. The framework validates all 7 ecosystems, any ingestion path, before packages enter your environment.</p>
+      </div>
+      <div class="benefit-card">
         <div class="benefit-icon" style="background:rgba(74,158,255,0.12);">🔍</div>
         <h3>Catches what signatures miss</h3>
         <p>Valid Sigstore signatures do not confirm safe code or authorized publishing. The framework audits the chain of custody behind the signature — commit graph, PR review, publisher repo identity.</p>
@@ -2150,6 +2180,31 @@ Running Gate 3 — Out-of-band trust...
     <div class="section-label">References</div>
     <div class="section-title">Further reading.</div>
     <div class="refs-grid">
+      <a class="ref-card" href="https://github.blog/changelog/2026-06-09-upcoming-breaking-changes-for-npm-v12/" target="_blank">
+        <div class="ref-type">Platform hardening — July 2026</div>
+        <div class="ref-title">npm v12 — allowScripts off by default</div>
+        <div class="ref-desc">preinstall/postinstall scripts, Git deps, and remote URL deps blocked unless explicitly allowlisted. Complements Gate 5; does not replace Gates 0–1–2–3–4 or cover non-npm ecosystems.</div>
+      </a>
+      <a class="ref-card" href="https://www.infoworld.com/article/4183849/github-finally-pulls-the-plug-on-automatic-install-script-execution-for-npm.html" target="_blank">
+        <div class="ref-type">Coverage — InfoWorld</div>
+        <div class="ref-title">GitHub finally pulls the plug on automatic install script execution for npm</div>
+        <div class="ref-desc">InfoWorld analysis of the npm v12 security changes, why the ecosystem took so long to get here, and what remains unaddressed after the change ships.</div>
+      </a>
+      <a class="ref-card" href="https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/" target="_blank">
+        <div class="ref-type">Roadmap — GitHub Blog</div>
+        <div class="ref-title">GitHub Actions 2026 security roadmap</div>
+        <div class="ref-desc">Dependency locking (SHA pins for all Actions), Layer-7 egress firewall, scoped secrets, centralized policy rulesets. CI/CD pipeline hardening complementing Gate 2.5.</div>
+      </a>
+      <a class="ref-card" href="https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/" target="_blank">
+        <div class="ref-type">Platform hardening — June 2026</div>
+        <div class="ref-title">GitHub actions/checkout v7 — safer pull_request_target defaults</div>
+        <div class="ref-desc">Closes the pwn request vector by making pull_request_target secure by default. Complements Gate 2.5; does not replace Gates 0–1–2–3–4–5 or the zero-day lane.</div>
+      </a>
+      <a class="ref-card" href="https://www.infoworld.com/article/4188038/github-actions-hardens-checkout-security-to-block-pwn-request-attacks.html" target="_blank">
+        <div class="ref-type">Coverage — InfoWorld</div>
+        <div class="ref-title">GitHub Actions hardens checkout security to block pwn request attacks</div>
+        <div class="ref-desc">InfoWorld analysis of the checkout v7 change, the history of the pwn request vulnerability, and remaining gaps in the supply chain attack surface.</div>
+      </a>
       <a class="ref-card" href="https://devops.com/shai-hulud-clone-miasma-compromises-32-red-hat-npm-packages/" target="_blank">
         <div class="ref-type">Incident analysis</div>
         <div class="ref-title">Miasma compromises 32 Red Hat npm packages</div>

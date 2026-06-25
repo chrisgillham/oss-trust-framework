@@ -1,8 +1,10 @@
 # OSS Trust Framework — Development Backlog
 
-> **Current version:** v0.5.1 — All gates fully operational for PyPI and npm.
+> **Current version:** v0.6.1 — All gates fully operational for PyPI and npm.
 > This document tracks planned improvements, known gaps, and contributor opportunities.
 > See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
+
+> **June 2026 — GitHub "Secure by Default" Wave:** Three platform-level hardening changes are in motion: (1) `actions/checkout` v7 closes the pwn request vector (one path into Gate 2.5); (2) npm v12 `allowScripts` off by default (July 2026) adds a pre-Gate-5 block on install-time execution for npm only — directly complementing but not replacing Gate 5's behavioral sandbox and the full six-gate pipeline; (3) the GitHub Actions 2026 security roadmap (dependency locking, egress firewall, scoped secrets) hardens CI/CD pipeline execution. None of these changes address Gates 0–1–2–3–4 or the zero-day lane, and none cover non-npm ecosystems. See the README for the full mapping table.
 
 ---
 

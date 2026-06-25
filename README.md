@@ -8,7 +8,7 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.5.1 — All gates fully operational for PyPI and npm.** Registry support for 7 ecosystems (Cargo, Go, Maven, NuGet, RubyGems) with partial gate coverage — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
+> **v0.6.1 — All gates fully operational for PyPI and npm.** Registry support for 7 ecosystems (Cargo, Go, Maven, NuGet, RubyGems) with partial gate coverage — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
 
 ---
 
@@ -503,6 +503,29 @@ See [Populate the trusted publishers allowlist](#6-populate-the-trusted-publishe
 
 ## Why This Exists
 
+> ### 📌 June 2026 — GitHub's "Secure by Default" Wave: What It Covers, and What It Doesn't
+>
+> GitHub has shipped two significant supply chain hardening changes in June 2026, with a broader 2026 Actions security roadmap in motion. Each is meaningful. None of them eliminates the need for pre-ingestion, multi-gate validation across all ecosystems.
+>
+> ---
+>
+> **① `actions/checkout` v7 — pwn request blocks (June 18, 2026)**
+> Automatically blocks workflows using `pull_request_target` or `workflow_run` to fetch unreviewed fork code — closing the long-known pwn request attack vector that hit TanStack (170 packages). This maps to one input path in Gate 2.5 (orphan commit detection / PR provenance). It does **not** apply to: Miasma-class attacks (no fork; compromised account pushes to canonical repo directly), IronWorm (fires from inside an already-published package), or any of Gates 0–1–2–3–4–5.
+>
+> **② npm v12 — `allowScripts` off by default (July 2026)**
+> The most significant npm security change in the package manager's history. Starting with npm v12, `npm install` will no longer execute `preinstall`, `install`, or `postinstall` scripts from dependencies unless they appear in an explicit project-level allowlist. Git dependencies (`--allow-git`) and remote URL dependencies (`--allow-remote`) also block by default. This directly addresses the IronWorm preinstall hook attack vector — the crude-but-effective technique that turned install-time into an arbitrary code execution highway. Gate 5 (behavioral sandbox) has been defending this surface from day one; npm v12 adds a **complementary platform-level block before Gate 5 even runs**. However: npm v12 does not address speed attacks (Gate 1), publisher provenance mismatches (Gate 2), CI/CD pipeline audit (Gate 2.5), CVE/trust aggregation (Gate 3), or SBOM delta (Gate 4). It also only covers npm — PyPI, Cargo, Maven, NuGet, RubyGems, and Go are unaffected. And critically: runtime-loaded payloads, compromised approved packages, and publish-pipeline compromises remain live threats.
+>
+> **③ GitHub Actions 2026 Security Roadmap (in progress)**
+> GitHub has published a broader roadmap including: workflow-level dependency locking (SHA-pinning for all Actions, similar to `go.sum`), a Layer-7 native egress firewall for hosted runners, scoped secrets bound to specific repos/branches/environments, and centralized policy rulesets controlling who can trigger workflows. These are CI/CD pipeline hardening controls. They complement Gate 2.5 but do not address the package-level threat surface this framework covers.
+>
+> **The framework's position:** These are welcome platform-level improvements. They establish a safer floor. The OSS Trust Framework validates packages **before they enter your environment**, across all 7 ecosystems, via any ingestion path — Dependabot, manual installs, Renovate, npm, pip, cargo — regardless of platform. The six-gate pipeline, zero-day expedited lane, behavioral sandbox, and SBOM delta exist precisely because no single platform default covers the full kill chain.
+>
+> | GitHub Change | Gate(s) Overlapping | Gaps Remaining |
+> |---|---|---|
+> | checkout v7 (pwn request block) | Gate 2.5a, 2.5c (partial) | Gates 0–1–2–3–4–5, zero-day lane, non-npm ecosystems |
+> | npm v12 (allowScripts off) | Gate 5 (partial — adds pre-Gate-5 block) | Gates 0–1–2–3–4, zero-day lane, all non-npm ecosystems |
+> | Actions 2026 roadmap (dependency locking, egress FW) | Gate 2.5 (partial) | Package-level gates 0–5, cross-ecosystem, zero-day lane |
+
 Three distinct supply chain attack patterns are defeating traditional defenses right now:
 
 **Pattern 1 — Speed attacks.** A compromised maintainer account publishes a malicious release. Automated dependency tooling (Dependabot, Renovate, npm update) ingests it within minutes. The attacker wins the race against community detection and revocation.
@@ -743,6 +766,12 @@ MIT — see [LICENSE](LICENSE).
 
 ## References
 
+- [GitHub actions/checkout v7 — Safer pull_request_target defaults (June 2026)](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/)
+- [GitHub Actions hardens checkout security to block pwn request attacks — InfoWorld](https://www.infoworld.com/article/4188038/github-actions-hardens-checkout-security-to-block-pwn-request-attacks.html)
+- [npm v12 upcoming breaking changes — GitHub Changelog (June 2026)](https://github.blog/changelog/2026-06-09-upcoming-breaking-changes-for-npm-v12/)
+- [GitHub finally pulls the plug on automatic install script execution for npm — InfoWorld](https://www.infoworld.com/article/4183849/github-finally-pulls-the-plug-on-automatic-install-script-execution-for-npm.html)
+- [What's coming to our GitHub Actions 2026 security roadmap — GitHub Blog](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/)
+- [Strengthening supply chain security: Preparing for the next malware campaign — GitHub Blog](https://github.blog/security/supply-chain-security/strengthening-supply-chain-security-preparing-for-the-next-malware-campaign/)
 - [IronWorm: Shai-Hulud's rustier cousin — JFrog Security Research](https://research.jfrog.com/post/iron-worm-shai-hulud-rustier-cousin/)
 - [IronWorm malware hits 36 npm packages — BleepingComputer](https://www.bleepingcomputer.com/news/security/new-ironworm-malware-hits-36-packages-in-npm-supply-chain-attack/)
 - [Miasma compromises 32 Red Hat npm packages — devops.com](https://devops.com/shai-hulud-clone-miasma-compromises-32-red-hat-npm-packages/)
