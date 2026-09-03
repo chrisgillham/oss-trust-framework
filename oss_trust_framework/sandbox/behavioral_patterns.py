@@ -1,7 +1,7 @@
 """
 Gate 5 — Behavioral pattern matching.
 
-Covers two confirmed attack families:
+Covers four confirmed attack families:
 
 Miasma / Shai-Hulud (Red Hat Insights, TanStack, Bitwarden — 2026):
   - Unique per-infection encrypted payloads defeat hash-based IOCs.
@@ -18,9 +18,26 @@ IronWorm (asteroiddao / Arweave ecosystem — identified JFrog, 2026-06-03):
   - Self-propagates via npm OIDC Trusted Publishing using stolen credentials.
   - Backdates commits to obscure forensic timeline.
 
-Both families are defeated by behavioral matching — patterns fire on what
-the payload *does* (network destinations, file paths, syscalls, env vars),
-not what it looks like. Encryption and obfuscation are irrelevant.
+Mini Shai-Hulud (TanStack/UiPath/MistralAI ecosystem — 2026):
+  - Self-replicating JavaScript worm targeting npm.
+  - Enumerates all packages the compromised account can publish to.
+  - Publishes trojanized versions of each package in rapid succession
+    (blast radius amplification — one compromised account → N poisoned pkgs).
+  - MINISHAI-001: detects second-or-more registry PUT in one sandbox session.
+  - MINISHAI-002: detects npm ownership enumeration (recon before propagation).
+
+ML Artifact Supply Chain (Hugging Face exploit — 2026):
+  - Malicious model/dataset artifacts exploit execution at load time.
+  - Attack vectors: torch.load without weights_only=True, pickle.loads on
+    untrusted input, pandas.read_parquet from untrusted source.
+  - Structurally identical to an npm preinstall hook: artifact load → RCE
+    → credential harvest → lateral movement into internal ML pipelines.
+  - MLARTIFACT-001–004: detect unsafe deserialization call patterns.
+
+All families are defeated by behavioral matching — patterns fire on what
+the payload *does* (network destinations, file paths, syscalls, env vars,
+Python call patterns), not what it looks like. Encryption and obfuscation
+are irrelevant.
 
 Pattern categories:
   - CLOUD_METADATA_ACCESS  — requests to instance metadata endpoints
@@ -32,6 +49,8 @@ Pattern categories:
   - ENV_VAR_HARVEST        — enumeration of secrets from environment
   - KERNEL_EXPLOIT         — eBPF/rootkit syscall patterns (IronWorm)
   - CRYPTO_WALLET          — cryptocurrency wallet credential access
+  - WORM_PROPAGATION       — cross-package self-replication signals (Mini Shai-Hulud)
+  - UNSAFE_DESERIALIZATION — unsafe ML artifact load patterns (HF exploit)
 """
 
 from __future__ import annotations
@@ -49,8 +68,10 @@ class PatternCategory(str, Enum):
     ENCRYPTED_EXFIL = "encrypted_exfil"
     PROCESS_INJECTION = "process_injection"
     ENV_VAR_HARVEST = "env_var_harvest"
-    KERNEL_EXPLOIT = "kernel_exploit"        # IronWorm eBPF rootkit
-    CRYPTO_WALLET = "crypto_wallet"          # IronWorm Exodus wallet theft
+    KERNEL_EXPLOIT = "kernel_exploit"          # IronWorm eBPF rootkit
+    CRYPTO_WALLET = "crypto_wallet"            # IronWorm Exodus wallet theft
+    WORM_PROPAGATION = "worm_propagation"      # Mini Shai-Hulud cross-pkg spread
+    UNSAFE_DESERIALIZATION = "unsafe_deserialization"  # ML artifact exploit (HF)
 
 
 @dataclass
@@ -65,6 +86,8 @@ class BehavioralPattern:
     env_var_pattern: str | None = None
     miasma_specific: bool = False    # Directly observed in Miasma/Shai-Hulud
     ironworm_specific: bool = False  # Directly observed in IronWorm
+    minishai_specific: bool = False  # Directly observed in Mini Shai-Hulud
+    mlartifact_specific: bool = False  # ML artifact / Hugging Face exploit pattern
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +393,104 @@ BEHAVIORAL_PATTERNS: list[BehavioralPattern] = [
         file_path_prefix=".github/workflows",
         ironworm_specific=True,
     ),
+
+    # =========================================================================
+    # MINI SHAI-HULUD patterns — self-replicating worm (npm, 2026)
+    # Reference: TanStack/UiPath/MistralAI ecosystem campaign
+    #
+    # The worm enumerates all packages the compromised account can publish to
+    # and issues rapid sequential registry PUTs.  PUBLISH-001 catches the first
+    # PUT; MINISHAI-001 fires on the second (propagation confirmed).
+    # =========================================================================
+
+    BehavioralPattern(
+        id="MINISHAI-001",
+        category=PatternCategory.WORM_PROPAGATION,
+        description=(
+            "Second-or-more HTTP PUT to npm registry in a single sandbox session — "
+            "self-replicating worm propagation confirmed (Mini Shai-Hulud pattern). "
+            "PUBLISH-001 fires on the first PUT; this fires when propagation is active."
+        ),
+        severity="CRITICAL",
+        network_destination="registry.npmjs.org",
+        minishai_specific=True,
+    ),
+    BehavioralPattern(
+        id="MINISHAI-002",
+        category=PatternCategory.WORM_PROPAGATION,
+        description=(
+            "npm package ownership enumeration — query for all packages a user account "
+            "can publish to. This is the reconnaissance step immediately preceding "
+            "blast-radius amplification in the Mini Shai-Hulud propagation sequence."
+        ),
+        severity="HIGH",
+        network_destination="registry.npmjs.org/-/user/",
+        minishai_specific=True,
+    ),
+
+    # =========================================================================
+    # ML ARTIFACT patterns — unsafe deserialization (Hugging Face exploit, 2026)
+    #
+    # Malicious HF model/dataset artifacts exploit code-execution at load time.
+    # Attack surface is structurally identical to an npm preinstall hook:
+    #   artifact load → arbitrary code → credential harvest → lateral movement.
+    #
+    # Detection approach: sandbox Python call events for the specific unsafe
+    # deserialization APIs. The event type "python_call" carries the fully
+    # qualified call string (module.function + key args).
+    # =========================================================================
+
+    BehavioralPattern(
+        id="MLARTIFACT-001",
+        category=PatternCategory.UNSAFE_DESERIALIZATION,
+        description=(
+            "torch.load() called without weights_only=True — unsafe pickle deserialization "
+            "of a model file. This is the primary vector for the Hugging Face worker-node "
+            "RCE exploit. Attacker-controlled .pt/.pth files can execute arbitrary Python "
+            "during load via __reduce__."
+        ),
+        severity="CRITICAL",
+        process_command_fragment=r"torch\.load\b(?!.*weights_only\s*=\s*True)",
+        mlartifact_specific=True,
+    ),
+    BehavioralPattern(
+        id="MLARTIFACT-002",
+        category=PatternCategory.UNSAFE_DESERIALIZATION,
+        description=(
+            "pickle.loads() or pickle.load() called on data from an external/untrusted "
+            "source within an install-time or data-loading script. Pickle is an arbitrary "
+            "code execution primitive — loading attacker-controlled bytes executes their "
+            "__reduce__ payload unconditionally."
+        ),
+        severity="CRITICAL",
+        process_command_fragment=r"pickle\.(loads?)\s*\(",
+        mlartifact_specific=True,
+    ),
+    BehavioralPattern(
+        id="MLARTIFACT-003",
+        category=PatternCategory.UNSAFE_DESERIALIZATION,
+        description=(
+            "pandas.read_parquet() or pyarrow.parquet.read_table() called on a path "
+            "originating from an external dataset source. Malformed Parquet files can "
+            "trigger memory corruption or code execution in the Arrow C++ reader, "
+            "as exploited in the Hugging Face dataset worker attack."
+        ),
+        severity="HIGH",
+        process_command_fragment=r"(pd|pandas)\.read_parquet\s*\(|pyarrow\.parquet\.read_table\s*\(",
+        mlartifact_specific=True,
+    ),
+    BehavioralPattern(
+        id="MLARTIFACT-004",
+        category=PatternCategory.UNSAFE_DESERIALIZATION,
+        description=(
+            "joblib.load() or numpy.load() with allow_pickle=True called on an external "
+            "file. Both are pickle-based under the hood and carry the same arbitrary "
+            "code execution risk as pickle.loads() when loading attacker-controlled data."
+        ),
+        severity="HIGH",
+        process_command_fragment=r"joblib\.load\s*\(|numpy\.load\b.*allow_pickle\s*=\s*True",
+        mlartifact_specific=True,
+    ),
 ]
 
 
@@ -384,9 +505,13 @@ def evaluate_sandbox_events(events: list[dict]) -> list[dict]:
 
     Each event dict should have at minimum:
         {
-            "type": "network" | "file_read" | "process" | "env_access",
-            "value": "<destination or path or command or var_name>"
+            "type": "network" | "file_read" | "process" | "env_access" | "python_call",
+            "value": "<destination or path or command or var_name or call_expr>"
         }
+
+    The "python_call" type (new in 2026-09) carries the Python call expression
+    as a string, e.g. "torch.load('/tmp/model.pt')" — matched against
+    process_command_fragment patterns in the UNSAFE_DESERIALIZATION category.
 
     Returns a list of finding dicts with pattern ID, severity, and attribution.
     """
@@ -404,7 +529,7 @@ def evaluate_sandbox_events(events: list[dict]) -> list[dict]:
             elif event_type == "file_read" and pattern.file_path_prefix:
                 matched = value.startswith(pattern.file_path_prefix)
 
-            elif event_type == "process" and pattern.process_command_fragment:
+            elif event_type in ("process", "python_call") and pattern.process_command_fragment:
                 matched = bool(re.search(pattern.process_command_fragment, value, re.IGNORECASE))
 
             elif event_type == "env_access" and pattern.env_var_pattern:
@@ -418,6 +543,8 @@ def evaluate_sandbox_events(events: list[dict]) -> list[dict]:
                     "description": pattern.description,
                     "miasma_specific": pattern.miasma_specific,
                     "ironworm_specific": pattern.ironworm_specific,
+                    "minishai_specific": pattern.minishai_specific,
+                    "mlartifact_specific": pattern.mlartifact_specific,
                     "triggered_by": {"type": event_type, "value": value},
                 })
 
@@ -436,6 +563,10 @@ def get_attack_family(findings: list[dict]) -> list[str]:
             families.add("Miasma/Shai-Hulud")
         if f.get("ironworm_specific"):
             families.add("IronWorm")
+        if f.get("minishai_specific"):
+            families.add("Mini Shai-Hulud")
+        if f.get("mlartifact_specific"):
+            families.add("ML Artifact")
     return sorted(families)
 
 

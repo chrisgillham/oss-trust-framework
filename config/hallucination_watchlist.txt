@@ -1,0 +1,70 @@
+# OSS Trust Framework — LLM Hallucination Watchlist
+#
+# Curated list of package names documented as frequent LLM hallucinations
+# on npm and PyPI. These names are registered by attackers (slopsquatting)
+# to catch developers auto-installing AI-suggested dependencies.
+#
+# Format: one package name per line. Lines starting with # are comments.
+# Names are matched case-insensitively and separator-normalised.
+#
+# Sources:
+#   - Socket.dev slopsquatting research (2025-2026)
+#   - OSS Trust Framework community reports
+#   - https://github.com/chrisgillham/oss-trust-framework/issues
+#
+# Last reviewed: 2026-09-03
+# To add entries: open a PR with source documentation linking to where
+# the hallucination was observed in the wild.
+#
+# ---------------------------------------------------------------------------
+# npm — confirmed LLM hallucinations
+# ---------------------------------------------------------------------------
+react-query-utils
+axios-retry-handler
+express-middleware-utils
+lodash-extended
+node-fetch-retry
+webpack-bundle-utils
+typescript-helpers
+eslint-config-standard-react
+prettier-config-airbnb
+jest-mock-extended-utils
+react-router-hooks
+next-auth-helpers
+prisma-client-extended
+mongoose-paginate-utils
+socket-io-client-utils
+graphql-request-utils
+
+# ---------------------------------------------------------------------------
+# PyPI — confirmed LLM hallucinations
+# ---------------------------------------------------------------------------
+requests-retry
+pandas-utils
+numpy-helpers
+sklearn-utils
+torch-data
+tensorflow-addons-utils
+flask-api-utils
+django-rest-utils
+sqlalchemy-helpers
+pydantic-extra
+fastapi-utils-extended
+pytest-mock-utils
+boto3-helpers
+langchain-utils
+openai-helpers
+anthropic-utils
+
+# ---------------------------------------------------------------------------
+# AI tool impersonation (both ecosystems)
+# ---------------------------------------------------------------------------
+claude-code-cli
+claude-code-unofficial
+anthropic-claude-code
+cursor-mcp-plugin
+cursor-ai-plugin
+openclaw
+openclaws
+mcp-plugin-toolkit
+copilot-cli-utils

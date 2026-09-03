@@ -665,3 +665,466 @@ def _check_cargo_vet_audit(package: str, version: str) -> Optional[str]:
     if result.returncode == 0:
         return f"cargo-vet: an audited entry exists for {package}:{version} (advisory only)."
     return None
+
+# ---------------------------------------------------------------------------
+# Gate 2 — Publisher identity continuity check
+# ---------------------------------------------------------------------------
+# Covers the maintainer takeover pattern (chalk/debug vector, 2026):
+# an attacker who takes over a maintainer account and publishes a malicious
+# version may still pass Gate 2's repo-URI check (the URI is unchanged).
+# Comparing the publishing identity against prior versions closes this gap.
+#
+# Signal hierarchy:
+#   - Publisher identity CHANGED on a package with >1M weekly downloads → QUARANTINE
+#   - Publisher identity CHANGED on any other package → WARN (advisory)
+#   - New publisher account created <90 days ago (after a change) → escalate
+#   - Publisher identity UNCHANGED → advisory note only (INFO)
+#
+# Fails open on all registry errors — a lookup failure never blocks.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class PublisherContinuityResult:
+    passed: bool
+    current_publisher: Optional[str]
+    previous_publisher: Optional[str]
+    identity_changed: bool
+    new_account_age_days: Optional[int]   # None if unchanged or unknown
+    risk: str                             # LOW | MEDIUM | HIGH | INFO
+    message: str
+
+
+async def check_publisher_continuity(
+    package: str,
+    version: str,
+    ecosystem: str,
+    high_value_weekly_downloads: int = 1_000_000,
+    http_client: Optional[httpx.AsyncClient] = None,
+) -> PublisherContinuityResult:
+    """
+    Gate 2 supplementary check: verify the publisher identity for this version
+    matches the identity used for recent prior versions.
+
+    Supported ecosystems: npm, PyPI, Cargo.
+    All others return INFO/pass (advisory only — no registry API to query).
+
+    Args:
+        package:                      Package name.
+        version:                      Version being validated.
+        ecosystem:                    npm | PyPI | Cargo | others.
+        high_value_weekly_downloads:  Download threshold above which a publisher
+                                      change is escalated from WARN to QUARANTINE.
+        http_client:                  Optional pre-configured client (for testing).
+    """
+    own_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=15)
+
+    try:
+        if ecosystem == "npm":
+            return await _npm_publisher_continuity(
+                package, version, client, high_value_weekly_downloads
+            )
+        elif ecosystem == "PyPI":
+            return await _pypi_publisher_continuity(package, version, client)
+        elif ecosystem == "Cargo":
+            return await _cargo_publisher_continuity(package, version, client)
+        else:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=None,
+                previous_publisher=None,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="INFO",
+                message=f"Publisher continuity check not implemented for {ecosystem}.",
+            )
+    finally:
+        if own_client:
+            await client.aclose()
+
+
+async def _npm_publisher_continuity(
+    package: str,
+    version: str,
+    client: httpx.AsyncClient,
+    high_value_threshold: int,
+) -> PublisherContinuityResult:
+    """
+    npm: compare _npmUser.name on the new version vs prior versions.
+    Also checks weekly downloads to determine escalation level.
+    """
+    try:
+        resp = await client.get(
+            f"https://registry.npmjs.org/{package}",
+            headers={"Accept": "application/json"},
+        )
+        if resp.status_code != 200:
+            return _continuity_lookup_failed("npm", package)
+
+        data = resp.json()
+        versions = data.get("versions", {})
+        time_data = data.get("time", {})
+
+        # Sort versions by publish time to find the one immediately before current
+        published_times = {
+            v: time_data.get(v, "")
+            for v in versions
+            if v not in ("created", "modified")
+        }
+        sorted_versions = sorted(published_times, key=lambda v: published_times[v])
+
+        if version not in sorted_versions:
+            return _continuity_lookup_failed("npm", package)
+
+        current_idx = sorted_versions.index(version)
+        current_publisher = (
+            versions.get(version, {}).get("_npmUser", {}).get("name")
+        )
+
+        if current_idx == 0 or current_publisher is None:
+            # First version ever — no prior publisher to compare
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=None,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="INFO",
+                message=f"npm: {package}@{version} is the first published version — no prior publisher to compare.",
+            )
+
+        # Check the previous 1–3 versions for consistency
+        prior_publishers = set()
+        for prev_ver in sorted_versions[max(0, current_idx - 3):current_idx]:
+            pub = versions.get(prev_ver, {}).get("_npmUser", {}).get("name")
+            if pub:
+                prior_publishers.add(pub)
+
+        if not prior_publishers:
+            return _continuity_lookup_failed("npm", package)
+
+        previous_publisher = next(iter(prior_publishers))  # representative
+        identity_changed = current_publisher not in prior_publishers
+
+        if not identity_changed:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=previous_publisher,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="LOW",
+                message=f"npm: publisher identity consistent — '{current_publisher}' matches prior versions.",
+            )
+
+        # Identity changed — check download volume and new account age
+        weekly_downloads = await _npm_weekly_downloads(client, package)
+        account_age_days = await _github_account_age_days(client, current_publisher)
+
+        risk, passed = _escalate_identity_change(
+            package, current_publisher, previous_publisher,
+            weekly_downloads, high_value_threshold, account_age_days,
+        )
+
+        return PublisherContinuityResult(
+            passed=passed,
+            current_publisher=current_publisher,
+            previous_publisher=previous_publisher,
+            identity_changed=True,
+            new_account_age_days=account_age_days,
+            risk=risk,
+            message=_identity_change_message(
+                "npm", package, version, current_publisher, previous_publisher,
+                weekly_downloads, high_value_threshold, account_age_days, risk,
+            ),
+        )
+
+    except Exception as exc:
+        logger.warning("npm publisher continuity check failed for %s: %s", package, exc)
+        return _continuity_lookup_failed("npm", package)
+
+
+async def _pypi_publisher_continuity(
+    package: str,
+    version: str,
+    client: httpx.AsyncClient,
+) -> PublisherContinuityResult:
+    """
+    PyPI: compare the uploader identity across versions via the PyPI JSON API.
+    Uses the `uploaded_via` maintainer field where available; falls back to
+    comparing the version list's maintainer metadata.
+    """
+    try:
+        resp = await client.get(f"https://pypi.org/pypi/{package}/json")
+        if resp.status_code != 200:
+            return _continuity_lookup_failed("PyPI", package)
+
+        data = resp.json()
+        releases = data.get("releases", {})
+
+        # Build {version: uploader} map from upload metadata
+        publisher_map: dict[str, Optional[str]] = {}
+        for ver, files in releases.items():
+            for f in files:
+                uploader = f.get("uploaded_by")
+                if uploader:
+                    publisher_map[ver] = uploader
+                    break
+
+        current_publisher = publisher_map.get(version)
+        if current_publisher is None:
+            return _continuity_lookup_failed("PyPI", package)
+
+        # Compare against the 3 most recent prior versions
+        all_versions = sorted(
+            (v for v in publisher_map if v != version),
+            key=lambda v: releases.get(v, [{}])[0].get("upload_time", ""),
+        )
+        recent_prior = all_versions[-3:] if len(all_versions) >= 1 else []
+        prior_publishers = {publisher_map[v] for v in recent_prior if publisher_map.get(v)}
+
+        if not prior_publishers:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=None,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="INFO",
+                message=f"PyPI: {package}=={version} appears to be first upload — no prior publisher to compare.",
+            )
+
+        previous_publisher = next(iter(prior_publishers))
+        identity_changed = current_publisher not in prior_publishers
+
+        if not identity_changed:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=previous_publisher,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="LOW",
+                message=f"PyPI: publisher identity consistent — '{current_publisher}' matches prior versions.",
+            )
+
+        account_age_days = await _github_account_age_days(client, current_publisher)
+        risk, passed = _escalate_identity_change(
+            package, current_publisher, previous_publisher,
+            weekly_downloads=0,  # PyPI doesn't expose this simply
+            high_value_threshold=1_000_000,
+            account_age_days=account_age_days,
+        )
+        return PublisherContinuityResult(
+            passed=passed,
+            current_publisher=current_publisher,
+            previous_publisher=previous_publisher,
+            identity_changed=True,
+            new_account_age_days=account_age_days,
+            risk=risk,
+            message=_identity_change_message(
+                "PyPI", package, version, current_publisher, previous_publisher,
+                weekly_downloads=0, high_value_threshold=1_000_000,
+                account_age_days=account_age_days, risk=risk,
+            ),
+        )
+
+    except Exception as exc:
+        logger.warning("PyPI publisher continuity check failed for %s: %s", package, exc)
+        return _continuity_lookup_failed("PyPI", package)
+
+
+async def _cargo_publisher_continuity(
+    package: str,
+    version: str,
+    client: httpx.AsyncClient,
+) -> PublisherContinuityResult:
+    """
+    Cargo: compare published_by.login across versions via the crates.io versions API.
+    The published_by field is already fetched by the Trusted Publishing check;
+    this function re-queries it for the historical comparison.
+    """
+    try:
+        resp = await client.get(
+            f"https://crates.io/api/v1/crates/{package}/versions",
+            headers={"User-Agent": CRATES_IO_USER_AGENT},
+        )
+        if resp.status_code != 200:
+            return _continuity_lookup_failed("Cargo", package)
+
+        versions_data = resp.json().get("versions", [])
+        # Sort by created_at descending
+        versions_data.sort(key=lambda v: v.get("created_at", ""), reverse=True)
+
+        current_entry = next(
+            (v for v in versions_data if v.get("num") == version), None
+        )
+        if not current_entry:
+            return _continuity_lookup_failed("Cargo", package)
+
+        current_publisher = (current_entry.get("published_by") or {}).get("login")
+
+        # Prior 3 versions (excluding current)
+        prior_entries = [v for v in versions_data if v.get("num") != version][:3]
+        prior_publishers = {
+            (v.get("published_by") or {}).get("login")
+            for v in prior_entries
+            if (v.get("published_by") or {}).get("login")
+        }
+
+        if not current_publisher or not prior_publishers:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=None,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="INFO",
+                message=f"Cargo: publisher identity data unavailable for {package}@{version} — likely published via API token (no published_by).",
+            )
+
+        previous_publisher = next(iter(prior_publishers))
+        identity_changed = current_publisher not in prior_publishers
+
+        if not identity_changed:
+            return PublisherContinuityResult(
+                passed=True,
+                current_publisher=current_publisher,
+                previous_publisher=previous_publisher,
+                identity_changed=False,
+                new_account_age_days=None,
+                risk="LOW",
+                message=f"Cargo: publisher identity consistent — '{current_publisher}' matches prior versions.",
+            )
+
+        account_age_days = await _github_account_age_days(client, current_publisher)
+        risk, passed = _escalate_identity_change(
+            package, current_publisher, previous_publisher,
+            weekly_downloads=0,
+            high_value_threshold=1_000_000,
+            account_age_days=account_age_days,
+        )
+        return PublisherContinuityResult(
+            passed=passed,
+            current_publisher=current_publisher,
+            previous_publisher=previous_publisher,
+            identity_changed=True,
+            new_account_age_days=account_age_days,
+            risk=risk,
+            message=_identity_change_message(
+                "Cargo", package, version, current_publisher, previous_publisher,
+                weekly_downloads=0, high_value_threshold=1_000_000,
+                account_age_days=account_age_days, risk=risk,
+            ),
+        )
+
+    except Exception as exc:
+        logger.warning("Cargo publisher continuity check failed for %s: %s", package, exc)
+        return _continuity_lookup_failed("Cargo", package)
+
+
+# ---------------------------------------------------------------------------
+# Publisher continuity helpers
+# ---------------------------------------------------------------------------
+
+async def _npm_weekly_downloads(client: httpx.AsyncClient, package: str) -> int:
+    """Fetch weekly download count from the npm downloads API. Returns 0 on error."""
+    try:
+        resp = await client.get(
+            f"https://api.npmjs.org/downloads/point/last-week/{package}",
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("downloads", 0)
+    except Exception:
+        pass
+    return 0
+
+
+async def _github_account_age_days(client: httpx.AsyncClient, username: str) -> Optional[int]:
+    """
+    Return how many days old a GitHub account is. Returns None if the account
+    can't be found or the API is unavailable.
+    """
+    if not username:
+        return None
+    try:
+        resp = await client.get(
+            f"https://api.github.com/users/{username}",
+            headers={"Accept": "application/vnd.github+json"},
+            timeout=8,
+        )
+        if resp.status_code == 200:
+            created_str = resp.json().get("created_at", "")
+            if created_str:
+                from datetime import datetime, timezone
+                created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                return (datetime.now(timezone.utc) - created).days
+    except Exception:
+        pass
+    return None
+
+
+def _escalate_identity_change(
+    package: str,
+    current_publisher: str,
+    previous_publisher: str,
+    weekly_downloads: int,
+    high_value_threshold: int,
+    account_age_days: Optional[int],
+) -> tuple[str, bool]:
+    """
+    Determine risk level and pass/fail for a publisher identity change.
+
+    Rules:
+    - New account <90 days old after a change → HIGH, quarantine
+    - High-value package (downloads > threshold) with any change → HIGH, quarantine
+    - Any other change → MEDIUM, quarantine (advisory hold, not hard block)
+    """
+    young_account = account_age_days is not None and account_age_days < 90
+    high_value = weekly_downloads >= high_value_threshold
+
+    if young_account or high_value:
+        return "HIGH", False   # quarantine
+    return "MEDIUM", False     # quarantine — any unexplained identity change is suspicious
+
+
+def _identity_change_message(
+    ecosystem: str,
+    package: str,
+    version: str,
+    current: str,
+    previous: str,
+    weekly_downloads: int,
+    high_value_threshold: int,
+    account_age_days: Optional[int],
+    risk: str,
+) -> str:
+    age_note = (
+        f" New publisher account is only {account_age_days} days old — strong takeover indicator."
+        if account_age_days is not None and account_age_days < 90
+        else ""
+    )
+    dl_note = (
+        f" Package has {weekly_downloads:,} weekly downloads — high-value target."
+        if weekly_downloads >= high_value_threshold
+        else ""
+    )
+    return (
+        f"{risk}: {ecosystem} publisher identity change detected on {package}@{version}. "
+        f"Current publisher: '{current}'. Prior publisher(s): '{previous}'.{age_note}{dl_note} "
+        f"Possible maintainer account takeover (chalk/debug attack pattern). "
+        f"Verify with the package maintainer team before approving."
+    )
+
+
+def _continuity_lookup_failed(ecosystem: str, package: str) -> PublisherContinuityResult:
+    return PublisherContinuityResult(
+        passed=True,
+        current_publisher=None,
+        previous_publisher=None,
+        identity_changed=False,
+        new_account_age_days=None,
+        risk="INFO",
+        message=f"Publisher continuity check could not fetch {ecosystem} metadata for {package} — skipped (fail open).",
+    )

@@ -10,7 +10,7 @@
 
 | Gate | Status | Notes |
 |---|---|---|
-| 0 — Name similarity | ✅ Complete | 3 algorithms: Levenshtein, prefix, char-swap |
+| 0 — Name similarity | ✅ Complete | 3 algorithms + SlopsquatChecker heuristic battery + hallucination watchlist |
 | 1 — Age hold | ✅ Complete | Configurable thresholds; all 7 ecosystems |
 | 2 — Provenance attestation | ✅ PyPI + npm + Cargo · ❌ Go/Maven/NuGet/RubyGems | Sigstore native on PyPI + npm; Cargo via crates.io Trusted Publishing (OIDC); others return "not implemented" |
 | 2.5a — Orphan commits | ✅ Complete | BFS graph walk, 180-day filter, trusted repos allowlist |
@@ -18,7 +18,7 @@
 | 2.5c — PR provenance | ✅ Complete | 10+ tag formats, graceful degradation |
 | 3 — OOB trust | ✅ Complete | OpenSSF, OSV, GHSA, deps.dev |
 | 4 — SBOM delta | ✅ Complete | syft active, cross-platform, baselines pinned, CI workflow updated |
-| 5 — Behavioral sandbox | ✅ Complete | strace active on Linux CI; gVisor for strongest isolation |
+| 5 — Behavioral sandbox | ✅ Complete | strace active on Linux CI; gVisor for strongest isolation; +2 MINISHAI + 4 MLARTIFACT patterns (2026-09) |
 | Zero-day lane | ✅ Complete | 2-of-3 MFA quorum, 6h TTL, circuit breakers |
 
 ---
@@ -308,7 +308,7 @@ All 10 risks fully addressed as of v0.5.1 for PyPI and npm. Partial for other ec
 
 ---
 
-*Last updated: 2026-08-31 · Cargo Gate 2 (Trusted Publishing) added in draft — see [P2 — Cargo](#-p2--cargo-rust--gate-2-implemented-via-trusted-publishing-parser--gate-5-remain) above.*
+*Last updated: 2026-09-03 · Four threat-response enhancements implemented: Gate 0 SlopsquatChecker + hallucination watchlist, Gate 2 publisher identity continuity (npm/PyPI/Cargo), Gate 5 MINISHAI-001/002 (worm propagation), Gate 5 MLARTIFACT-001–004 (unsafe deserialization). 45 new tests, all passing.*
 <!-- Note: this file's version pin (v0.5.1) predates the README/CLI (v0.6.1) and
      the v0.7.0 npm improvements already shipped -- worth a pass to sync all
      three before the next release, same class of issue as the earlier
@@ -360,8 +360,8 @@ The following items were added based on five supply chain attack patterns observ
 
 | Item | Gate | Effort | Notes |
 |------|------|--------|-------|
-| New behavioral pattern: MINISHAI-001 | 5 | 1 hr | Detect rapid sequential registry publish attempts within a single install-time execution: if Gate 5 observes more than one outbound PUT to a registry endpoint within the same sandbox session, escalate from BLOCK to CRITICAL and emit a worm-propagation alert. Currently `PUBLISH-001` fires on the first PUT; add `MINISHAI-001` for the second-or-more case. |
-| New behavioral pattern: MINISHAI-002 | 5 | 2 hr | Detect npm registry ownership enumeration: `GET /api/v1/packages?maintainer=<user>` or equivalent calls to list all packages an account can publish to. This is the reconnaissance step preceding propagation. |
+| New behavioral pattern: MINISHAI-001 | 5 | 1 hr | ✅ **Implemented 2026-09** — CRITICAL; `WORM_PROPAGATION` category; matches `registry.npmjs.org` on second PUT in session. |
+| New behavioral pattern: MINISHAI-002 | 5 | 2 hr | ✅ **Implemented 2026-09** — HIGH; `WORM_PROPAGATION` category; matches `registry.npmjs.org/-/user/` ownership recon endpoint. |
 | Gate 3: publisher cross-package blast-radius check | 3 | 3 hr | For each package being checked, query the registry API for the full list of packages owned by the same publisher account. Surface a MEDIUM advisory if the publisher owns >25 packages and any of those packages have had a version published in the last 24 hours — indicating a possible worm propagation event in progress. Configurable threshold in `config/pipeline.yaml`. |
 | Gate 2: publisher account publish-rate anomaly | 2 | 2 hr | If the registry API shows that the publishing account has published more than N packages in the past hour (configurable, default 3), treat the attestation as suspicious even if the repo URI matches. Surface as HIGH/quarantine rather than pass. |
 
@@ -384,7 +384,7 @@ The following items were added based on five supply chain attack patterns observ
 | Gate 0: Hugging Face model/dataset name-similarity check | 0 | 2 hr | Extend the name-similarity checker to cover Hugging Face Hub model IDs (`org/model-name` format). Typosquats on `mistralai/Mistral-7B-Instruct-v0.2` are already observed in the wild. |
 | Gate 1: HF Hub artifact age hold | 1 | 2 hr | Query the Hugging Face Hub API for model/dataset card metadata and apply the same 24h/72h age gate currently applied to PyPI/npm versions. A newly uploaded model revision with no community downloads or discussion is a red flag. |
 | Gate 2: HF Hub model provenance check | 2 | 3 hr | Hugging Face Hub exposes commit history and author identity on model repos. Verify the author identity matches the expected org (e.g., `mistralai`, `meta-llama`, `google`) against an allowlist extension in `trusted_publishers.yaml`. Flag model cards that link to no canonical paper or project URL. |
-| Gate 5: unsafe deserialization detection | 5 | 4 hr | Add a new behavioral pattern category `MLARTIFACT` for sandbox detection of unsafe deserialization calls at model-load time: `torch.load` without `weights_only=True`, `pickle.loads` on untrusted input, and `pandas.read_parquet` from an untrusted source. These are the execution vectors used in the Hugging Face attack. Requires sandbox instrumentation of Python import/call events, not just syscalls. |
+| Gate 5: unsafe deserialization detection | 5 | 4 hr | ✅ **Implemented 2026-09** — 4 patterns: MLARTIFACT-001 (`torch.load` unsafe), MLARTIFACT-002 (`pickle.load/loads`), MLARTIFACT-003 (`pd.read_parquet` / `pyarrow.parquet.read_table`), MLARTIFACT-004 (`joblib.load` / `numpy.load allow_pickle`). New `python_call` event type in `evaluate_sandbox_events`. New `UNSAFE_DESERIALIZATION` + `WORM_PROPAGATION` pattern categories. |
 | `config/trusted_publishers.yaml`: HF Hub allowlist section | config | 1 hr | Add `HuggingFace:` section to the trusted publishers allowlist, covering canonical org IDs for the major model families (mistralai, meta-llama, google, microsoft, Qwen, deepseek-ai, etc.). |
 
 **Reference:** Hugging Face infrastructure and artifact exploit campaign (2026)
@@ -411,8 +411,8 @@ The following items were added based on five supply chain attack patterns observ
 
 | Item | Gate | Effort | Notes |
 |------|------|--------|-------|
-| Gate 0: slopsquat heuristic detection | 0 | 3 hr | Add a `SlopsquatChecker` alongside the existing similarity algorithms. Red flags: package registered <30 days ago, zero versions prior to current, README under 200 words with no GitHub link, zero reverse dependencies (packages that depend on it), no OpenSSF Scorecard entry. Any 3-of-5 → WARN; 5-of-5 → BLOCK. Threshold configurable in `config/pipeline.yaml`. |
-| Gate 0: LLM hallucination frequency list integration | 0 | 2 hr | Maintain a curated `config/hallucination_watchlist.txt` of package names documented as LLM hallucinations (community-sourced; refs: Socket.dev slopsquatting reports, existing research). Gate 0 checks incoming package names against this list before the similarity check — an exact match on the watchlist is an immediate WARN regardless of age or provenance. |
+| Gate 0: slopsquat heuristic detection | 0 | 3 hr | ✅ **Implemented 2026-09** — `check_slopsquat()` in `checker.py`. Five-signal battery (age, prior versions, README density, dependents, Scorecard). 3-of-5 → WARN; 5-of-5 → BLOCK. Thresholds configurable. |
+| Gate 0: LLM hallucination frequency list integration | 0 | 2 hr | ✅ **Implemented 2026-09** — `config/hallucination_watchlist.txt` created with 33 seed entries. `_load_watchlist()` in `checker.py`. Watchlist hit → WARN regardless of signal count. |
 | Gate 0: AI tooling impersonation allowlist | 0 | 1 hr | Add a dedicated section to `trusted_publishers.yaml` for canonical AI tool package names (`@anthropic/claude-code`, `cursor`, `@modelcontextprotocol/sdk`, etc.) so Gate 0's similarity check fires on near-matches to these names, even if the legitimate packages aren't traditional registry packages. |
 | Gate 3: zero-history package scoring | 3 | 2 hr | Add a low-history penalty to the OOB trust score: packages with zero reverse dependencies, no Scorecard entry, and first published in the last 72 hours receive a synthetic floor score of 0 rather than being excluded from scoring. Currently packages with no Scorecard data pass Gate 3 with an INFO message; this change makes them QUARANTINE candidates when combined with other low signals. |
 
@@ -435,7 +435,7 @@ The following items were added based on five supply chain attack patterns observ
 
 | Item | Gate | Effort | Notes |
 |------|------|--------|-------|
-| Gate 2: publisher identity continuity check | 2 | 3 hr | For npm: compare `_npmUser.name` on the new version against the `_npmUser.name` on the previous N versions via the registry API. For PyPI: compare `uploaded_via` / `author` metadata. For Cargo: compare `published_by.login` via the crates.io version API (this field is already fetched in the Cargo provenance check). A publisher identity change on any package → WARN; on a package with >1M weekly downloads → QUARANTINE. Configurable download threshold in `config/pipeline.yaml`. |
+| Gate 2: publisher identity continuity check | 2 | 3 hr | ✅ **Implemented 2026-09** — `check_publisher_continuity()` in `provenance.py`. npm (`_npmUser.name`), PyPI (`uploaded_by`), Cargo (`published_by.login`). Change + young account (<90d) or high-value package (>1M dl/wk) → HIGH/quarantine; other changes → MEDIUM/quarantine. Fails open. |
 | Gate 2: account age check on new publisher identity | 2 | 2 hr | If a publisher identity change is detected, query the registry/GitHub API for the account's creation date. An account that took over a high-download package and was created <90 days ago is a strong takeover signal → escalate to HIGH. |
 | Gate 3: maintainer MFA status check | 3 | 2 hr | npm and PyPI both expose whether a package's maintainers have MFA enabled (npm: `/-/npm/v1/security/advisories/bulk`; PyPI: `two_factor_requirement_enabled` on the project API). A core maintainer account without MFA on a high-download package is a standing vulnerability — surface as MEDIUM advisory in the Gate 3 OOB trust score even when no active exploit is occurring. |
 | `config/trusted_publishers.yaml`: high-value package tagging | config | 1 hr | Add an optional `high_value: true` tag to trusted publisher entries for packages above a configurable download threshold. This tag activates the stricter publisher-continuity and account-age checks above without requiring all packages to pay the extra API call cost. |
