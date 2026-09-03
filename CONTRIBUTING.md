@@ -38,15 +38,19 @@ from oss_trust_framework.pipeline.cli import main
 ## Running tests
 
 ```bash
-# Full suite — 131 tests, all offline
+# Full suite — 176 tests, all offline
 pytest
 
 # By gate
-pytest tests/test_gate1_age.py        # Gate 1 — age threshold boundaries
-pytest tests/test_gate3_trust.py      # Gate 3 — OOB trust aggregation
-pytest tests/test_gate5_behavioral.py # Gate 5 — all 34 behavioral patterns
-pytest tests/test_zeroday_lane.py     # Zero-day — full quorum lifecycle
-pytest tests/test_integration.py      # Cross-gate integration + regression
+pytest tests/test_gate0_slopsquat.py            # Gate 0 — SlopsquatChecker + watchlist
+pytest tests/test_gate1_age.py                   # Gate 1 — age threshold boundaries
+pytest tests/test_gate2_cargo_provenance.py      # Gate 2 — Cargo Trusted Publishing
+pytest tests/test_gate2_publisher_continuity.py  # Gate 2 — publisher identity continuity
+pytest tests/test_gate3_trust.py                 # Gate 3 — OOB trust aggregation
+pytest tests/test_gate5_behavioral.py            # Gate 5 — Miasma + IronWorm patterns
+pytest tests/test_gate5_new_patterns.py          # Gate 5 — MINISHAI + MLARTIFACT patterns
+pytest tests/test_zeroday_lane.py                # Zero-day — full quorum lifecycle
+pytest tests/test_integration.py                 # Cross-gate integration + regression
 
 # With coverage
 pytest --cov=oss_trust_framework --cov-report=term-missing
@@ -88,7 +92,10 @@ async def run_sandboxed_install(package: str, version: str, ecosystem: str) -> l
       {"type": "network"|"file_read"|"process"|"env_access", "value": "..."}
     
     Feed output to: behavioral_patterns.evaluate_sandbox_events(events)
-    
+
+    Event types: "network", "file_read", "process", "env_access", "python_call"
+    (python_call is for ML artifact deserialization detection — MLARTIFACT patterns)
+
     Runtime options: gVisor (preferred), Firecracker, Docker (least preferred)
     """
 ```
@@ -111,13 +118,15 @@ Each stub returns `(True, "stub message")` so the pipeline runs end-to-end. Repl
 
 1. Add a new `BehavioralPattern` entry to `BEHAVIORAL_PATTERNS` in `oss_trust_framework/sandbox/behavioral_patterns.py`
 2. Choose the appropriate `PatternCategory` (or add a new one)
-3. Set `miasma_specific=True` or `ironworm_specific=True` if applicable
+3. Set `miasma_specific=True`, `ironworm_specific=True`, `minishai_specific=True`, or `mlartifact_specific=True` if applicable
 4. Add a corresponding test in `tests/test_gate5_behavioral.py`
 5. Update the pattern count assertion: `assert len(BEHAVIORAL_PATTERNS) == N`
 
 Pattern ID conventions:
 - `MIASMA-XXX` — observed in Miasma/Shai-Hulud campaigns
 - `IRONWORM-XXX` — observed in IronWorm campaign
+- `MINISHAI-XXX` — observed in Mini Shai-Hulud self-replicating worm campaign
+- `MLARTIFACT-XXX` — ML artifact unsafe deserialization (Hugging Face exploit pattern)
 - `CRED-XXX` — credential file access (cross-family)
 - `PUBLISH-XXX` — package registry publish from install context
 - `ENV-XXX` — environment variable harvesting

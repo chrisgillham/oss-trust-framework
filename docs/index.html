@@ -547,7 +547,7 @@ footer {
   <div class="hero-grid"></div>
   <div class="hero-glow"></div>
   <div class="hero-content">
-    <div class="hero-badge">v0.6.1 — All Gates Operational · Multi-Ecosystem · See June 2026 GitHub hardening context ↓</div>
+    <div class="hero-badge">v0.8.0 — All Gates Operational · npm/PyPI/Cargo · SlopsquatChecker · 40 behavioral patterns</div>
     <h1>Stop supply chain<br>attacks <em>before</em><br>they ship.</h1>
     <p class="hero-sub">A five-gate validation pipeline that intercepts malicious open source packages — including attacks that pass valid cryptographic signatures — before they reach your application.</p>
     <div class="hero-actions">
@@ -816,7 +816,7 @@ footer {
             <div class="gate-box gate-standard">
               <div class="gate-num">Gate 5</div>
               <div class="gate-name">Behavioral Sandbox</div>
-              <div class="gate-desc">gVisor isolation · 34 named patterns · strace active on Linux CI · behavior-based, not hash-based.</div>
+              <div class="gate-desc">gVisor isolation · 40 named patterns (Miasma + IronWorm + Mini Shai-Hulud + ML Artifact) · strace active on Linux CI · behavior-based, not hash-based · <code>python_call</code> events for ML deserialization detection.</div>
               <div class="gate-tags">
                 <span class="gate-tag miasma">IMDS · OIDC · credential harvest</span>
               </div>
@@ -1001,7 +1001,7 @@ footer {
           <div class="gate-number-badge badge-teal">G5</div>
           <div>
             <div class="gate-detail-title">Behavioral Sandbox + Pattern Matching</div>
-            <div class="gate-detail-sub">gVisor/strace isolation · 34 named patterns (18 Miasma + 16 IronWorm) · behavior-based, not hash-based · active on Linux CI</div>
+            <div class="gate-detail-sub">gVisor/strace isolation · 40 named patterns (18 Miasma + 16 IronWorm + 2 Mini Shai-Hulud + 4 ML Artifact) · behavior-based, not hash-based · active on Linux CI · <code>python_call</code> event type for ML deserialization</div>
           </div>
           <div class="gate-fail-pill pill-block">BLOCK</div>
         </div>
@@ -1051,7 +1051,7 @@ footer {
         <div style="display:flex;flex-direction:column;gap:0.4rem">
           <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> git clone + pip install -e</div>
           <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> Full dev dependencies</div>
-          <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> 131-test suite</div>
+          <div style="font-size:0.8rem;color:var(--text2);display:flex;align-items:center;gap:0.5rem"><span style="color:var(--accent)">→</span> 176-test suite</div>
         </div>
       </div>
     </div>
@@ -1090,7 +1090,7 @@ footer {
 
     <div id="pip" class="tab-panel active">
       <div style="background:var(--amber-soft);border:1px solid rgba(245,166,35,0.3);border-radius:var(--radius);padding:0.875rem 1.1rem;margin-bottom:1rem;font-size:0.83rem;color:var(--text2)">
-        <strong style="color:var(--green)">v0.6.1</strong> — Multi-ecosystem support (npm, PyPI, Cargo, Go, Maven, NuGet, RubyGems) + <code>oss-trust check-all</code> command.
+        <strong style="color:var(--green)">v0.8.0</strong> — SlopsquatChecker + hallucination watchlist (Gate 0) · Publisher identity continuity (Gate 2) · MINISHAI worm-propagation + MLARTIFACT unsafe-deserialization patterns (Gate 5) · Cargo Gate 2 via Trusted Publishing · 40 named behavioral patterns · 176 tests.
       </div>
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal</div></div>
@@ -1374,7 +1374,7 @@ cp .env.example .env</pre></div>
     <div id="dev-test" class="tab-panel">
       <div class="code-block">
         <div class="code-header"><div class="code-dots"><div class="code-dot" style="background:#ff5f57"></div><div class="code-dot" style="background:#ffbd2e"></div><div class="code-dot" style="background:#28ca41"></div></div><div class="code-filename">terminal — run the test suite</div></div>
-        <div class="code-body"><pre><span class="tok-cm"># Full suite — 131 tests, all offline, under 5 seconds</span>
+        <div class="code-body"><pre><span class="tok-cm"># Full suite — 176 tests, all offline, under 5 seconds</span>
 pytest tests/ -v
 
 <span class="tok-cm"># With coverage (note: oss_trust_framework not src)</span>
@@ -1889,7 +1889,7 @@ oss-trust zeroday status --request-id a3f9b2c1d4e5
       <div class="benefit-card">
         <div class="benefit-icon" style="background:rgba(255,77,109,0.12);">🎯</div>
         <h3>Behavior-based sandbox</h3>
-        <p>34 named patterns match on what malware <em>does</em> — IMDS requests, OIDC token grabs, credential file reads, Tor connections — not what it looks like. Unique encrypted payloads (Miasma v2) don't defeat behavioral matching. Active on Linux CI via strace.</p>
+        <p>40 named patterns match on what malware <em>does</em> — IMDS requests, OIDC token grabs, credential file reads, Tor connections, cross-package publish propagation, unsafe ML deserialization — not what it looks like. Unique encrypted payloads (Miasma v2) don't defeat behavioral matching. Active on Linux CI via strace. New <code>python_call</code> event type enables ML artifact exploit detection (MLARTIFACT-001–004).</p>
       </div>
     </div>
   </div>
@@ -2099,7 +2099,7 @@ Running Gate 3 — Out-of-band trust...
         <p style="font-size:0.82rem;color:var(--text2);margin:0">Standard check, CVE detection, age gate, IronWorm patterns, Miasma patterns, zero-day quorum workflow.</p>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem">
-        <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.4rem">131 tests passing</div>
+        <div style="font-family:'Syne',sans-serif;font-weight:700;margin-bottom:0.4rem">176 tests passing</div>
         <p style="font-size:0.82rem;color:var(--text2);margin:0">Full test suite covering every gate, all 34 behavioral patterns, and the complete zero-day quorum lifecycle.</p>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem">
@@ -2219,6 +2219,16 @@ Running Gate 3 — Out-of-band trust...
         <div class="ref-type">Incident analysis</div>
         <div class="ref-title">Bitwarden CLI compromise — Checkmarx campaign</div>
         <div class="ref-desc">Demonstrates this is a systematic, repeatable attack playbook across multiple targets.</div>
+      </a>
+      <a class="ref-card" href="https://socket.dev" target="_blank">
+        <div class="ref-type">Incident analysis — Gate 0</div>
+        <div class="ref-title">Slopsquatting: LLM hallucination package attacks (2026)</div>
+        <div class="ref-desc">Attackers register package names frequently hallucinated by AI coding assistants. Gate 0 SlopsquatChecker closes this blind spot.</div>
+      </a>
+      <a class="ref-card" href="https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html" target="_blank">
+        <div class="ref-type">Standard — Gate 2</div>
+        <div class="ref-title">crates.io Trusted Publishing (RFC #3691)</div>
+        <div class="ref-desc">OIDC-based trusted publishing for Cargo crates. The <code>trustpub_data.repository</code> field is what Gate 2 verifies for Cargo packages.</div>
       </a>
       <a class="ref-card" href="https://openssf.org/projects/scorecard/" target="_blank">
         <div class="ref-type">Tool — Gate 3</div>
