@@ -1,10 +1,8 @@
 # OSS Trust Framework — Development Backlog
 
-> **Current version:** v0.6.1 — All gates fully operational for PyPI and npm.
+> **Current version:** v0.5.1 — All gates fully operational for PyPI and npm.
 > This document tracks planned improvements, known gaps, and contributor opportunities.
 > See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
-
-> **June 2026 — GitHub "Secure by Default" Wave:** Three platform-level hardening changes are in motion: (1) `actions/checkout` v7 closes the pwn request vector (one path into Gate 2.5); (2) npm v12 `allowScripts` off by default (July 2026) adds a pre-Gate-5 block on install-time execution for npm only — directly complementing but not replacing Gate 5's behavioral sandbox and the full six-gate pipeline; (3) the GitHub Actions 2026 security roadmap (dependency locking, egress firewall, scoped secrets) hardens CI/CD pipeline execution. None of these changes address Gates 0–1–2–3–4 or the zero-day lane, and none cover non-npm ecosystems. See the README for the full mapping table.
 
 ---
 
@@ -14,7 +12,7 @@
 |---|---|---|
 | 0 — Name similarity | ✅ Complete | 3 algorithms: Levenshtein, prefix, char-swap |
 | 1 — Age hold | ✅ Complete | Configurable thresholds; all 7 ecosystems |
-| 2 — Provenance attestation | ✅ PyPI + npm · ⚠️ Cargo stub · ❌ Go/Maven/NuGet/RubyGems | Sigstore native on PyPI + npm; others return "not implemented" |
+| 2 — Provenance attestation | ✅ PyPI + npm + Cargo · ❌ Go/Maven/NuGet/RubyGems | Sigstore native on PyPI + npm; Cargo via crates.io Trusted Publishing (OIDC); others return "not implemented" |
 | 2.5a — Orphan commits | ✅ Complete | BFS graph walk, 180-day filter, trusted repos allowlist |
 | 2.5b — Workflow permissions | ✅ Complete | Environment protection credit, 403-safe |
 | 2.5c — PR provenance | ✅ Complete | 10+ tag formats, graceful degradation |
@@ -33,17 +31,18 @@
 |-----------|--------|--------|--------|----------|--------|--------|--------|----------------|
 | **PyPI** | ✅ | ✅ | ✅ Sigstore | ✅ | ✅ | ✅ syft | ✅ | ✅ `requirements.txt` |
 | **npm** | ✅ | ✅ | ✅ Sigstore | ✅ | ✅ | ✅ syft | ✅ | ✅ `package.json` |
-| **Cargo** | ✅ | ✅ | ⚠️ stub | ✅ | ✅ | ✅ syft | ⚠️ no hooks | ✅ `Cargo.toml` |
+| **Cargo** | ✅ | ✅ | ✅ Trusted Publishing¹ | ✅ | ✅ | ✅ syft | ⚠️ no hooks | ✅ `Cargo.toml` |
 | **RubyGems** | ✅ | ✅ | ❌ not impl. | ✅ | ✅ | ✅ syft | ⚠️ limited | ✅ `Gemfile.lock` |
 | **NuGet** | ✅ | ✅ | ❌ not impl. | ✅ | ✅ | ✅ syft | ⚠️ limited | ✅ `packages.config` |
 | **Go** | ✅ | ✅ | ❌ not impl. | ✅ | ✅ | ✅ syft | ❌ no hooks | ❌ no manifest parser |
 | **Maven** | ✅ | ✅ | ❌ not impl. | ✅ | ✅ | ✅ syft | ⚠️ limited | ❌ no manifest parser |
 
 > **Legend:** ✅ = fully implemented · ⚠️ = partial or best-effort · ❌ = not yet implemented
+> ¹ Verified via `trustpub_data` on the crates.io version API, not Sigstore — see notes below. Coverage is conditional on the crate having adopted crates.io Trusted Publishing; most crates today still publish via long-lived API token, which is treated as INFO/pass (not a failure) unless the crate is in `require_attestation`.
 
 ### Notes on partial coverage
 
-**Gate 2 (Provenance attestation):** PyPI Trusted Publishing and npm provenance are both Sigstore-native as of 2023/npm v9.5. Cargo, RubyGems, NuGet, Go, and Maven do not yet have end-to-end Sigstore pipelines with the same registry-level integration; Gate 2 falls back to the trusted publishers allowlist for these ecosystems.
+**Gate 2 (Provenance attestation):** PyPI Trusted Publishing and npm provenance are both Sigstore-native as of 2023/npm v9.5. Cargo is now covered via crates.io's own OIDC-based Trusted Publishing (RFC #3691, GitHub Actions since mid-2025, GitLab CI/CD since Jan 2026) — implemented in `oss_trust_framework/signature/provenance.py::_verify_cargo_provenance`, reading the `trustpub_data.repository` field and comparing it against the trusted publisher allowlist exactly like npm's `sourceRepositoryURI` check. This is not Sigstore, but it serves the same purpose: it proves which repo/workflow produced the published crate. A `cargo-vet` audit entry, if present locally, is surfaced as an advisory note only — it never overrides the Trusted Publishing check, since it answers a different question (was the source reviewed) than who published this specific version. RubyGems, NuGet, Go, and Maven do not yet have any end-to-end verifiable publish-time signal; Gate 2 falls back to the trusted publishers allowlist alone for these ecosystems.
 
 **Gate 2.5 (CI/CD audit):** Works for all ecosystems once a GitHub repo is resolved from the package registry metadata. Repo discovery quality varies — PyPI and npm expose rich `project_urls`/`repository` fields; Go module paths encode the repo by convention; Maven metadata is inconsistent.
 
@@ -112,20 +111,28 @@ Ecosystems are ordered by: (1) documented attack campaigns in the wild, (2) week
 
 ---
 
-### 🟠 P2 — Cargo (Rust) · *Mostly complete; Gate 2 stub needs implementation*
+### 🟠 P2 — Cargo (Rust) · *Gate 2 implemented via Trusted Publishing; parser + Gate 5 remain*
 
-**Priority:** Medium — Rust is growing fast; IronWorm itself is written in Rust. Cargo.io has Sigstore-style attestations via `cargo-vet` but not registry-level provenance yet.
+**Priority:** Medium — Rust is growing fast; IronWorm itself is written in Rust. crates.io shipped its own OIDC-based Trusted Publishing (RFC #3691) in 2025, with GitLab CI/CD support added January 2026 — this is now wired up as Gate 2.
 
-**Current state:** Gate 1 ✅ · Gate 2 ⚠️ stub · Gates 2.5 ✅ · Manifest parser ✅
+**Current state:** Gate 1 ✅ · Gate 2 ✅ (Trusted Publishing, conditional on adoption — see coverage note above) · Gates 2.5 ✅ · Manifest parser ✅ (`Cargo.toml`)
 
-**Work required:**
+**Done (2026-08 draft, needs review/merge):**
+
+| Item | Notes |
+|------|-------|
+| Gate 2: crates.io Trusted Publishing verification | Reads `trustpub_data.repository` from `GET /api/v1/crates/{crate}/{version}`; compares against the allowlist; CRITICAL/block on mismatch, same Miasma-pattern handling as npm/PyPI. Missing `trustpub_data` is INFO/pass unless the crate is in `require_attestation` (most crates still use a long-lived token — that's not itself a red flag). |
+| Gate 2: `cargo-vet` integration | Implemented as an **advisory-only** note appended to the Gate 2 message when Trusted Publishing data is absent — deliberately does not pass/fail the gate on its own, since a source audit doesn't prove who published *this* version. |
+| `tests/test_gate2_cargo_provenance.py` | 6 tests: repo match, repo mismatch (block), no-trustpub not-required (pass), no-trustpub required (hold), advisory vet note, registry-lookup failure (fails open). |
+
+**Remaining work:**
 
 | Item | Effort | Notes |
 |------|--------|-------|
 | `Cargo.lock` parser | 30 min | More complete than `Cargo.toml`; includes transitive deps. |
-| Gate 2: `cargo-vet` integration | 3 hr | `cargo vet` generates audit records for crates. Can be read as a trust signal alongside the allowlist. |
-| Gate 2: crates.io owner verification | 1 hr | crates.io API exposes crate owners. Verify against allowlist `owner` field. |
+| Gate 2: crates.io owner verification (secondary signal) | 1 hr | crates.io API exposes crate owners (`/owners` endpoint). Worth adding as a *second* advisory signal alongside Trusted Publishing for crates that haven't adopted it yet — flag an owner change since last-known-good rather than trusting it outright. |
 | Gate 5: build script detection | 1 hr | `build.rs` is the cargo equivalent of npm `preinstall`. Flag crates with `build.rs` for heightened scrutiny. |
+| `config/trusted_publishers.yaml` — expand Cargo allowlist | ongoing | Currently 5 crates (`serde`, `tokio`, `reqwest`, `rustls`, `ring`). Worth adding crates confirmed on Trusted Publishing (e.g. `uv`, `wasm-bindgen`, `cargo-binstall`, `starship`, `zoxide`) so Gate 2 has something to actually verify against in testing/demos. |
 
 ---
 
@@ -301,4 +308,8 @@ All 10 risks fully addressed as of v0.5.1 for PyPI and npm. Partial for other ec
 
 ---
 
-*Last updated: 2026-06-14 · v0.5.1*
+*Last updated: 2026-08-31 · Cargo Gate 2 (Trusted Publishing) added in draft — see [P2 — Cargo](#-p2--cargo-rust--gate-2-implemented-via-trusted-publishing-parser--gate-5-remain) above.*
+<!-- Note: this file's version pin (v0.5.1) predates the README/CLI (v0.6.1) and
+     the v0.7.0 npm improvements already shipped -- worth a pass to sync all
+     three before the next release, same class of issue as the earlier
+     README ecosystem-coverage correction. -->

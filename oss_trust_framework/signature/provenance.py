@@ -1,10 +1,11 @@
 """
-Gate 2 -- npm/PyPI provenance attestation and publisher repo allowlist.
+Gate 2 -- npm/PyPI/Cargo provenance attestation and publisher repo allowlist.
 
-npm (since v9.5) and PyPI (since 2023) support SLSA provenance attestations.
-These attestations embed a signed record of:
-  - Which GitHub Actions workflow ran the build
-  - Which repository and commit SHA produced the package
+npm (since v9.5), PyPI (since 2023), and crates.io (since mid-2025, GitLab
+support added Jan 2026) all support OIDC-based Trusted Publishing / SLSA
+provenance. These attestations embed a signed record of:
+  - Which CI workflow ran the build
+  - Which repository (and, where available, commit SHA) produced the package
   - The OIDC issuer that authenticated the workflow
 
 The Miasma attack used OIDC-based trusted publishing from a *compromised
@@ -14,12 +15,18 @@ provenance attestation pointed to the wrong repo.
 
 This module verifies:
   1. A provenance attestation exists for the package version.
-  2. The sourceRepositoryURI matches the allowlisted canonical publisher repo.
+  2. The source repo matches the allowlisted canonical publisher repo
+     (npm/PyPI: sourceRepositoryURI · Cargo: trustpub_data.repository).
   3. The build workflow matches expected patterns (not an ad-hoc script).
   4. For zero-day lane: the attestation timestamp postdates CVE publication.
 
 Fix 2026-06-06: restored `passed` field to ProvenanceResult dataclass.
                 No attestation = INFO/pass unless package is in require_attestation.
+
+2026-08: added Cargo support via crates.io Trusted Publishing (`trustpub_data`
+         on the version API). Go, Maven, NuGet, and RubyGems remain
+         advisory-only (allowlist without a verifiable publish-time signal) --
+         see BACKLOG.md for the per-ecosystem plan.
 
 Publisher allowlist is maintained in config/trusted_publishers.yaml.
 """
@@ -87,8 +94,14 @@ async def verify_provenance_attestation(
             package, version, expected_repo, http_client,
             attestation_required=attestation_required,
         )
+    elif ecosystem == "Cargo":
+        return await _verify_cargo_provenance(
+            package, version, expected_repo, http_client,
+            attestation_required=attestation_required,
+        )
     else:
-        # Cargo and Go have different attestation mechanisms; treat as advisory only
+        # Go, Maven, NuGet, RubyGems don't yet have a verifiable publish-time
+        # provenance signal wired up; treat as advisory only. See BACKLOG.md.
         return ProvenanceResult(
             passed=True,
             attestation_found=False,
@@ -459,3 +472,196 @@ async def _verify_pypi_provenance(
     finally:
         if own_client:
             await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Cargo (crates.io) provenance
+# ---------------------------------------------------------------------------
+
+CRATES_IO_USER_AGENT = "oss-trust-framework (github.com/chrisgillham/oss-trust-framework)"
+
+
+async def _verify_cargo_provenance(
+    package: str,
+    version: str,
+    expected_repo: Optional[str],
+    http_client: Optional[httpx.AsyncClient],
+    attestation_required: bool = False,
+) -> ProvenanceResult:
+    """
+    Verify Cargo (crates.io) provenance via Trusted Publishing (OIDC).
+
+    crates.io shipped OIDC-based Trusted Publishing for GitHub Actions in
+    mid-2025 (RFC #3691) and added GitLab CI/CD support in January 2026. A
+    version published via Trusted Publishing carries a `trustpub_data` object
+    on the version API response, e.g.:
+
+        "trustpub_data": {
+            "provider": "github",
+            "repository": "astral-sh/uv",
+            "run_id": "33117010175",
+            "sha": "61291a8ca5477a9ca653f14d2ac5665587c263fa"
+        }
+
+    `trustpub_data.repository` is the Cargo equivalent of npm's
+    sourceRepositoryURI / PyPI's SLSA provenance repo field -- it is the one
+    field that proves *which CI workflow, on which repo* produced the
+    published crate, closing the same Miasma-style gap: a compromised
+    account or unrelated fork publishing under a valid-looking identity.
+
+    IMPORTANT: crate ownership on crates.io is still overwhelmingly published
+    via long-lived API tokens as of this writing -- `trustpub_data` being
+    null is common and is NOT itself a red flag. As with npm/PyPI, a missing
+    attestation is INFO/pass unless the package is explicitly listed in
+    `require_attestation`, in which case it's a HIGH-risk hold rather than a
+    hard block (absence of a signal isn't proof of compromise).
+
+    A `cargo-vet` audit entry, if present locally, is surfaced as an
+    *advisory-only* note. It reflects that a human reviewed the crate's
+    source at some point -- a different question from who published this
+    specific version -- so it can never by itself clear a repo mismatch or
+    substitute for Trusted Publishing data.
+    """
+    own_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=15)
+
+    try:
+        try:
+            resp = await client.get(
+                f"https://crates.io/api/v1/crates/{package}/{version}",
+                headers={"User-Agent": CRATES_IO_USER_AGENT},
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("crates.io lookup failed for %s@%s: %s", package, version, exc)
+            return ProvenanceResult(
+                passed=True,
+                attestation_found=False,
+                source_repo=None,
+                expected_repo=expected_repo,
+                repo_match=False,
+                workflow_file=None,
+                build_trigger=None,
+                risk="INFO",
+                message=f"Could not reach crates.io for {package}@{version}: {exc}",
+            )
+
+        if resp.status_code != 200:
+            return ProvenanceResult(
+                passed=True,
+                attestation_found=False,
+                source_repo=None,
+                expected_repo=expected_repo,
+                repo_match=False,
+                workflow_file=None,
+                build_trigger=None,
+                risk="INFO",
+                message=f"Could not fetch crates.io metadata for {package}@{version} "
+                        f"(HTTP {resp.status_code}).",
+            )
+
+        data = resp.json()
+        version_data = data.get("version", {})
+        trustpub = version_data.get("trustpub_data")
+
+        if not trustpub:
+            vet_note = _check_cargo_vet_audit(package, version)
+            risk = "HIGH" if attestation_required else "INFO"
+            message = (
+                f"{package}@{version} was not published via crates.io Trusted "
+                "Publishing (no trustpub_data on this version -- likely a "
+                "long-lived API token, which is still the common case)."
+                + (" REQUIRED by policy." if attestation_required
+                   else " Not required -- add to require_attestation list to enforce.")
+            )
+            if vet_note:
+                message += f" {vet_note}"
+            return ProvenanceResult(
+                passed=not attestation_required,
+                attestation_found=False,
+                source_repo=None,
+                expected_repo=expected_repo,
+                repo_match=False,
+                workflow_file=None,
+                build_trigger=None,
+                risk=risk,
+                message=message,
+            )
+
+        source_repo = trustpub.get("repository")
+        provider = trustpub.get("provider", "unknown")
+        run_id = trustpub.get("run_id")
+        workflow_file = f"{provider} run {run_id}" if run_id else provider
+
+        repo_match = (
+            expected_repo is None
+            or (source_repo or "").lower() == expected_repo.lower()
+        )
+
+        if not repo_match:
+            return ProvenanceResult(
+                passed=False,
+                attestation_found=True,
+                source_repo=source_repo,
+                expected_repo=expected_repo,
+                repo_match=False,
+                workflow_file=workflow_file,
+                build_trigger=provider,
+                risk="CRITICAL",
+                message=(
+                    f"CRITICAL: {package}@{version} was published via crates.io "
+                    f"Trusted Publishing from '{source_repo}' but the trusted "
+                    f"publisher is '{expected_repo}'. This matches the Miasma "
+                    "attack pattern: a compromised account or unrelated fork "
+                    "publishing under a valid-looking identity."
+                ),
+            )
+
+        return ProvenanceResult(
+            passed=True,
+            attestation_found=True,
+            source_repo=source_repo,
+            expected_repo=expected_repo,
+            repo_match=True,
+            workflow_file=workflow_file,
+            build_trigger=provider,
+            risk="LOW",
+            message=(
+                f"crates.io Trusted Publishing verified. Published from "
+                f"'{source_repo}' via {provider} (run {run_id})."
+            ),
+        )
+
+    finally:
+        if own_client:
+            await client.aclose()
+
+
+def _check_cargo_vet_audit(package: str, version: str) -> Optional[str]:
+    """
+    Best-effort, advisory-only check for a local cargo-vet audit record.
+
+    cargo-vet (supply-chain/audits.toml) records that a human reviewed a
+    crate's source at a given version -- a different kind of trust signal
+    than Trusted Publishing, and one that says nothing about who published
+    THIS version. It is never used to pass or fail Gate 2 on its own; it is
+    surfaced only as an extra note appended to the message when Trusted
+    Publishing data is absent.
+
+    Returns None (silently) if cargo-vet isn't installed, isn't configured
+    in the current project, or the check fails for any reason -- this must
+    never raise or affect the gate outcome.
+    """
+    try:
+        result = subprocess.run(
+            ["cargo", "vet", "check", f"{package}:{version}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.debug("cargo-vet check skipped for %s@%s: %s", package, version, exc)
+        return None
+
+    if result.returncode == 0:
+        return f"cargo-vet: an audited entry exists for {package}:{version} (advisory only)."
+    return None
