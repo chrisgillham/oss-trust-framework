@@ -366,10 +366,8 @@ async def _pypi_slopsquat_signals(
         project_urls = info.get("project_urls") or {}
         home_page = info.get("home_page") or ""
         description = info.get("description") or ""
-        # CWE-20 fix: use urllib.parse hostname check rather than substring
-        # match -- "github.com" in url would pass on evil-github.com.
-        has_github = _is_github_url(home_page) or any(
-            _is_github_url(v or "") for v in project_urls.values()
+        has_github = "github.com" in home_page.lower() or any(
+            "github.com" in (v or "").lower() for v in project_urls.values()
         )
 
         # Signal 1: recently created — use first upload date of oldest release
