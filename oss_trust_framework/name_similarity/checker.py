@@ -327,8 +327,19 @@ async def _pypi_slopsquat_signals(
         project_urls = info.get("project_urls") or {}
         home_page = info.get("home_page") or ""
         description = info.get("description") or ""
-        has_github = "github.com" in home_page.lower() or any(
-            "github.com" in (v or "").lower() for v in project_urls.values()
+
+        def _is_github_url(value: str) -> bool:
+            try:
+                host = urlparse(value).hostname
+            except Exception:
+                return False
+            if not host:
+                return False
+            host = host.lower()
+            return host == "github.com" or host.endswith(".github.com")
+
+        has_github = _is_github_url(home_page) or any(
+            _is_github_url(v or "") for v in project_urls.values()
         )
 
         # Signal 1: recently created — use first upload date of oldest release
