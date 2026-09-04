@@ -203,6 +203,38 @@ class SlopsquatResult:
     message: str
 
 
+def _is_github_url(url: str) -> bool:
+    """
+    Return True only when the URL's hostname is exactly github.com (or a
+    github.com subdomain). Uses urllib.parse so that evil-github.com,
+    notgithub.com, and github.com.evil.example never match.
+
+    Fixes CWE-20 (py/incomplete-url-substring-sanitization): a bare
+    `"github.com" in url.lower()` substring check is insufficient because
+    the string can appear at an arbitrary position in the URL.
+    """
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url.lower()).hostname or ""
+        return hostname == "github.com" or hostname.endswith(".github.com")
+    except Exception:
+        return False
+
+
+def _readme_has_github_link(text: str) -> bool:
+    """
+    Scan free-form README text for a github.com link using hostname
+    validation rather than substring matching.
+    """
+    import re
+    for candidate in re.findall(r'https?://[^\s\)\"\']+', text):
+        if _is_github_url(candidate):
+            return True
+    return False
+
+
 async def _npm_slopsquat_signals(
     package: str,
     client: httpx.AsyncClient,
@@ -252,8 +284,11 @@ async def _npm_slopsquat_signals(
             signals.append("zero_prior_versions")
 
         # Signal 3: sparse README / no GitHub link
+        # CWE-20 fix: use urllib.parse hostname check rather than substring
+        # match -- "github.com" in url would pass on evil-github.com or
+        # notgithub.com. Check that the parsed hostname IS github.com exactly.
         readme_words = len(readme.split())
-        has_github = "github.com" in readme.lower() or "github.com" in repo_url.lower()
+        has_github = _is_github_url(repo_url) or _readme_has_github_link(readme)
         if readme_words < 200 and not has_github:
             signals.append(f"sparse_readme:{readme_words}w")
 
@@ -314,8 +349,10 @@ async def _pypi_slopsquat_signals(
         project_urls = info.get("project_urls") or {}
         home_page = info.get("home_page") or ""
         description = info.get("description") or ""
-        has_github = "github.com" in home_page.lower() or any(
-            "github.com" in (v or "").lower() for v in project_urls.values()
+        # CWE-20 fix: use urllib.parse hostname check rather than substring
+        # match -- "github.com" in url would pass on evil-github.com.
+        has_github = _is_github_url(home_page) or any(
+            _is_github_url(v or "") for v in project_urls.values()
         )
 
         # Signal 1: recently created — use first upload date of oldest release
