@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -253,7 +254,19 @@ async def _npm_slopsquat_signals(
 
         # Signal 3: sparse README / no GitHub link
         readme_words = len(readme.split())
-        has_github = "github.com" in readme.lower() or "github.com" in repo_url.lower()
+
+        def _is_github_url(value: str) -> bool:
+            if not value:
+                return False
+            try:
+                parsed = urlparse(value)
+                host = (parsed.hostname or "").lower()
+                return host == "github.com" or host.endswith(".github.com")
+            except Exception:
+                return False
+
+        readme_urls = re.findall(r"https?://[^\s)>\]\"']+", readme, flags=re.IGNORECASE)
+        has_github = _is_github_url(repo_url) or any(_is_github_url(u) for u in readme_urls)
         if readme_words < 200 and not has_github:
             signals.append(f"sparse_readme:{readme_words}w")
 
