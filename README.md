@@ -8,7 +8,7 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.5.1 — All gates fully operational for PyPI and npm.** Registry support for 7 ecosystems (Cargo, Go, Maven, NuGet, RubyGems) with partial gate coverage — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
+> **v0.8.0 — All gates fully operational for PyPI, npm, and Cargo.** Gate 0 now includes SlopsquatChecker + LLM hallucination watchlist. Gate 2 adds publisher identity continuity checks (npm/PyPI/Cargo). Gate 5 adds MINISHAI worm-propagation patterns and MLARTIFACT unsafe-deserialization patterns (40 patterns total). Registry support for 7 ecosystems — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
 
 ---
 
@@ -414,7 +414,7 @@ require_attestation:        # These packages BLOCK if no Sigstore attestation fo
 
 ## Supported Ecosystems
 
-> **Coverage note:** Gates 0, 1, 2.5, 3, and 4 run on all ecosystems listed below. Gate 2 (provenance attestation) is complete only for PyPI and npm, which have native Sigstore-based trusted publishing. Gate 5 (behavioral sandbox) intercepts install-time hooks — effective for npm and Cargo; not applicable to Go. See [BACKLOG.md](BACKLOG.md) for the full per-ecosystem gap analysis and roadmap.
+> **Coverage note:** Gates 0, 1, 2.5, 3, and 4 run on all ecosystems listed below. Gate 2 (provenance attestation) is complete for PyPI (Sigstore), npm (Sigstore), and Cargo (crates.io Trusted Publishing OIDC). Gate 5 (behavioral sandbox) intercepts install-time hooks — effective for npm and Cargo; not applicable to Go. See [BACKLOG.md](BACKLOG.md) for the full per-ecosystem gap analysis and roadmap.
 
 ### Full gate coverage
 
@@ -422,12 +422,13 @@ require_attestation:        # These packages BLOCK if no Sigstore attestation fo
 |-----------|----------|----------------|---------|----------|
 | `PyPI` ✅ | pypi.org | `package==version` | `requests==2.33.0` | `requirements.txt` |
 | `npm` ✅ | npmjs.com | `package@version` | `express@4.18.2` | `package.json` |
+| `Cargo` ✅ | crates.io | `crate@version` | `serde@1.0.200` | `Cargo.toml` |
 
 ### Partial coverage (Gates 0, 1, 2.5, 3, 4 — Gate 2 provenance pending)
 
 | Ecosystem | Registry | Package format | Example | Manifest | Gate 2 status |
 |-----------|----------|----------------|---------|----------|--------------|
-| `Cargo` | crates.io | `crate@version` | `serde@1.0.200` | `Cargo.toml` | ⚠️ stub — `cargo-vet` integration planned |
+| `Cargo` ✅ | crates.io | `crate@version` | `serde@1.0.200` | `Cargo.toml` | ✅ Trusted Publishing (OIDC via `trustpub_data`) |
 | `RubyGems` | rubygems.org | `gem` | `rails` | `Gemfile.lock` | ❌ not yet implemented |
 | `NuGet` | nuget.org | `PackageId` | `Newtonsoft.Json` | `packages.config` | ❌ not yet implemented |
 
@@ -503,6 +504,29 @@ See [Populate the trusted publishers allowlist](#6-populate-the-trusted-publishe
 
 ## Why This Exists
 
+> ### 📌 June 2026 — GitHub's "Secure by Default" Wave: What It Covers, and What It Doesn't
+>
+> GitHub has shipped two significant supply chain hardening changes in June 2026, with a broader 2026 Actions security roadmap in motion. Each is meaningful. None of them eliminates the need for pre-ingestion, multi-gate validation across all ecosystems.
+>
+> ---
+>
+> **① `actions/checkout` v7 — pwn request blocks (June 18, 2026)**
+> Automatically blocks workflows using `pull_request_target` or `workflow_run` to fetch unreviewed fork code — closing the long-known pwn request attack vector that hit TanStack (170 packages). This maps to one input path in Gate 2.5 (orphan commit detection / PR provenance). It does **not** apply to: Miasma-class attacks (no fork; compromised account pushes to canonical repo directly), IronWorm (fires from inside an already-published package), or any of Gates 0–1–2–3–4–5.
+>
+> **② npm v12 — `allowScripts` off by default (July 2026)**
+> The most significant npm security change in the package manager's history. Starting with npm v12, `npm install` will no longer execute `preinstall`, `install`, or `postinstall` scripts from dependencies unless they appear in an explicit project-level allowlist. Git dependencies (`--allow-git`) and remote URL dependencies (`--allow-remote`) also block by default. This directly addresses the IronWorm preinstall hook attack vector — the crude-but-effective technique that turned install-time into an arbitrary code execution highway. Gate 5 (behavioral sandbox) has been defending this surface from day one; npm v12 adds a **complementary platform-level block before Gate 5 even runs**. However: npm v12 does not address speed attacks (Gate 1), publisher provenance mismatches (Gate 2), CI/CD pipeline audit (Gate 2.5), CVE/trust aggregation (Gate 3), or SBOM delta (Gate 4). It also only covers npm — PyPI, Cargo, Maven, NuGet, RubyGems, and Go are unaffected. And critically: runtime-loaded payloads, compromised approved packages, and publish-pipeline compromises remain live threats.
+>
+> **③ GitHub Actions 2026 Security Roadmap (in progress)**
+> GitHub has published a broader roadmap including: workflow-level dependency locking (SHA-pinning for all Actions, similar to `go.sum`), a Layer-7 native egress firewall for hosted runners, scoped secrets bound to specific repos/branches/environments, and centralized policy rulesets controlling who can trigger workflows. These are CI/CD pipeline hardening controls. They complement Gate 2.5 but do not address the package-level threat surface this framework covers.
+>
+> **The framework's position:** These are welcome platform-level improvements. They establish a safer floor. The OSS Trust Framework validates packages **before they enter your environment**, across all 7 ecosystems, via any ingestion path — Dependabot, manual installs, Renovate, npm, pip, cargo — regardless of platform. The six-gate pipeline, zero-day expedited lane, behavioral sandbox, and SBOM delta exist precisely because no single platform default covers the full kill chain.
+>
+> | GitHub Change | Gate(s) Overlapping | Gaps Remaining |
+> |---|---|---|
+> | checkout v7 (pwn request block) | Gate 2.5a, 2.5c (partial) | Gates 0–1–2–3–4–5, zero-day lane, non-npm ecosystems |
+> | npm v12 (allowScripts off) | Gate 5 (partial — adds pre-Gate-5 block) | Gates 0–1–2–3–4, zero-day lane, all non-npm ecosystems |
+> | Actions 2026 roadmap (dependency locking, egress FW) | Gate 2.5 (partial) | Package-level gates 0–5, cross-ecosystem, zero-day lane |
+
 Three distinct supply chain attack patterns are defeating traditional defenses right now:
 
 **Pattern 1 — Speed attacks.** A compromised maintainer account publishes a malicious release. Automated dependency tooling (Dependabot, Renovate, npm update) ingests it within minutes. The attacker wins the race against community detection and revocation.
@@ -520,6 +544,11 @@ Three distinct supply chain attack patterns are defeating traditional defenses r
 | **TanStack** | 2026 | 170 npm | Same OIDC trusted publishing pattern | Active campaign |
 | **Bitwarden CLI** | 2026 | npm | Checkmarx campaign — OIDC trusted publishing | Active campaign |
 | **XZ Utils** | 2024 | tarball | 2-year social engineering -> build script backdoor | CVSS 10.0 |
+| **TeamPCP / Trivy** | 2026 | CI pipelines | Stolen service-account token from compromised CI run | Active campaign |
+| **Mini Shai-Hulud** | 2026 | npm (TanStack/UiPath/MistralAI) | Self-replicating worm; cross-account publish propagation | Active campaign |
+| **Hugging Face artifact exploit** | 2026 | HF Hub models/datasets | Malicious pickle/Parquet artifact → worker RCE | Active campaign |
+| **Slopsquatting** | 2026 | npm, PyPI | LLM-hallucinated package names registered by attackers | Active campaign |
+| **Maintainer takeover** | 2026 | npm (chalk/debug class) | Credential stuffing/spear-phishing → silent publish | Active campaign |
 
 ---
 
@@ -532,7 +561,7 @@ Dependency update request
 +----------------------+   Name >= 92% similar to trusted pkg --> BLOCKED   <-- postmark-mcp-evil
 |  Gate 0: Name        |   Name >= 80% similar --> WARN (manual review)
 |  Similarity Check    |   Exact allowlist match --> pass immediately
-|  (local, no network) |   3 algorithms: Levenshtein, prefix, char-swap
+|  (local, no network) |   3 algorithms + SlopsquatChecker + hallucination watchlist
 +----------+-----------+
            |
            v
@@ -570,7 +599,7 @@ Dependency update request
 +----------------------+   Tor C2 --> BLOCKED       <-- IronWorm: exfil
 |  Gate 5: Behavioral  |   eBPF rootkit --> BLOCKED  <-- IronWorm: rootkit
 |  Sandbox             |   AI API key harvest --> BLOCKED
-|  34 patterns active  |   Cloud cred harvest --> BLOCKED
+|  40 patterns active  |   Cloud cred harvest --> BLOCKED
 +----------+-----------+
            |
            v
@@ -586,15 +615,15 @@ Dependency update request
 
 | Gate | Controls | Fail action | Bypassable? |
 |---|---|---|---|
-| **0 — Name similarity** | Package name vs trusted allowlist — Levenshtein, prefix-addition, char-swap detection | Warn (>=80%) · Block (>=92%) | No |
+| **0 — Name similarity** | Package name vs trusted allowlist — Levenshtein, prefix-addition, char-swap detection + SlopsquatChecker heuristic battery (age, prior versions, README density, dependents, Scorecard) + LLM hallucination watchlist | Warn (>=80% similarity or ≥3 slopsquat signals or watchlist hit) · Block (>=92% similarity or all 5 signals) | No |
 | **1 — Age** | Release timestamp vs 24 h / 72 h thresholds | Block / Hold | Age only — with CVE + MFA quorum |
-| **2 — Provenance** | Sigstore attestation present; `sourceRepositoryURI` matches allowlist | Block (mismatch) · Quarantine (missing) | No |
+| **2 — Provenance** | Sigstore attestation present; `sourceRepositoryURI` matches allowlist; publisher identity continuity check across prior versions (npm/PyPI/Cargo) | Block (mismatch) · Quarantine (missing or publisher change) | No |
 | **2.5a — Orphan commits** | Release tag commit reachable from default branch via BFS graph walk | Block | No |
 | **2.5b — Workflow permissions** | `id-token: write` in publishing workflow without compensating controls | Quarantine | No |
 | **2.5c — PR provenance** | Release backed by merged PR with >= 1 approving reviewer | Block (no PR) · Quarantine (no review) | No |
 | **3 — OOB Trust** | OpenSSF Scorecard >= threshold; zero active CVEs via OSV + deps.dev + GHSA | Quarantine | No |
 | **4 — SBOM delta** | No unexpected transitive deps; lock file hash unchanged | Quarantine | No |
-| **5 — Behavioral sandbox** | gVisor/strace install-time execution; 34 named behavioral patterns (18 Miasma + 16 IronWorm) | Block | No |
+| **5 — Behavioral sandbox** | gVisor/strace install-time execution; 40 named behavioral patterns (18 Miasma + 16 IronWorm + 2 Mini Shai-Hulud + 4 ML Artifact); `python_call` event type for ML deserialization detection | Block | No |
 
 ---
 
@@ -625,6 +654,40 @@ Dependency update request
 | Tor hidden service C2 beacon | **5** | IRONWORM-001: `.onion` network event -> BLOCK |
 | npm token theft for self-propagation | **5** | IRONWORM-006/006b: `.npmrc` read + `NPM_AUTH_TOKEN` -> BLOCK |
 
+### Mini Shai-Hulud — self-replicating npm worm (2026)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| Ownership enumeration — all packages the account can publish to | **5** | MINISHAI-002: `registry.npmjs.org/-/user/` recon → HIGH |
+| Second-or-more registry PUT in one sandbox session | **5** | MINISHAI-001: sequential PUTs confirm worm propagation → BLOCK |
+| npm token theft for initial access | **5** | IRONWORM-006/006b: `.npmrc` + `NPM_AUTH_TOKEN` → BLOCK |
+
+### Slopsquatting / LLM hallucination attacks (2026)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| Package name matches LLM hallucination watchlist | **0** | `hallucination_watchlist.txt` exact match → WARN |
+| Newly registered, zero history, sparse README | **0** | SlopsquatChecker: 3+ signals → WARN; 5 signals → BLOCK |
+| AI tool impersonation (`claude-code-cli`, MCP plugin clones) | **0** | Similarity check against AI tooling entries in allowlist → BLOCK |
+
+### Maintainer takeover — chalk/debug vector (2026)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| Attacker publishes under newly taken-over account | **1** | Age hold: 24h hard block regardless of account | 
+| Publisher identity changes vs prior N versions | **2** | `check_publisher_continuity()`: change detected → MEDIUM/HIGH quarantine |
+| New publisher account <90 days old | **2** | Account age check escalates change to HIGH/quarantine |
+| High-value package (>1M weekly downloads) with any change | **2** | Download threshold check escalates to HIGH/quarantine |
+
+### Hugging Face / ML artifact exploit (2026)
+
+| Attack step | Gate | Mechanism |
+|---|---|---|
+| `torch.load()` without `weights_only=True` | **5** | MLARTIFACT-001: `python_call` event → BLOCK |
+| `pickle.loads()` / `pickle.load()` on external data | **5** | MLARTIFACT-002: `python_call` event → BLOCK |
+| `pd.read_parquet()` / `pyarrow.parquet.read_table()` | **5** | MLARTIFACT-003: `python_call` event → HIGH |
+| `joblib.load()` / `numpy.load(allow_pickle=True)` | **5** | MLARTIFACT-004: `python_call` event → HIGH |
+
 ---
 
 ## Zero-Day Lane Circuit Breakers
@@ -642,15 +705,19 @@ Exception tokens expire after 6 hours. Re-approval required — no extensions.
 ## Running Tests
 
 ```bash
-# Full suite — 131 tests, all offline (no network required)
+# Full suite — 176 tests, all offline (no network required)
 pytest
 
 # By gate
-pytest tests/test_gate1_age.py        # 11 tests — age threshold boundaries
-pytest tests/test_gate3_trust.py      # 6 tests  — OOB trust aggregation
-pytest tests/test_gate5_behavioral.py # 50 tests — all 34 named patterns
-pytest tests/test_zeroday_lane.py     # 23 tests — full quorum lifecycle
-pytest tests/test_integration.py      # 10 tests — cross-gate scenarios
+pytest tests/test_gate0_slopsquat.py            # 9 tests  — SlopsquatChecker + watchlist
+pytest tests/test_gate1_age.py                   # 11 tests — age threshold boundaries
+pytest tests/test_gate2_cargo_provenance.py      # 6 tests  — Cargo Trusted Publishing
+pytest tests/test_gate2_publisher_continuity.py  # 10 tests — publisher identity continuity
+pytest tests/test_gate3_trust.py                 # 6 tests  — OOB trust aggregation
+pytest tests/test_gate5_behavioral.py            # 30 tests — Miasma + IronWorm patterns
+pytest tests/test_gate5_new_patterns.py          # 19 tests — MINISHAI + MLARTIFACT patterns
+pytest tests/test_zeroday_lane.py                # 23 tests — full quorum lifecycle
+pytest tests/test_integration.py                 # 10 tests — cross-gate integration
 
 # With coverage
 pytest --cov=oss_trust_framework --cov-report=term-missing
@@ -689,7 +756,7 @@ oss-trust-framework/
 |   +-- cicd_audit/                 # Gate 2.5 -- CI/CD pipeline audit
 |   +-- trust/aggregator.py         # Gate 3 -- OpenSSF/OSV/deps.dev/GHSA
 |   +-- sbom/differ.py              # Gate 4 -- SBOM delta + hash pin
-|   +-- sandbox/                    # Gate 5 -- behavioral sandbox (34 patterns)
+|   +-- sandbox/                    # Gate 5 -- behavioral sandbox (40 patterns)
 |   +-- zeroday/validator.py        # CVE validation + quorum approval
 |   +-- pipeline/orchestrator.py    # Full pipeline runner
 |   +-- cli.py                      # oss-trust CLI entry point
@@ -698,9 +765,10 @@ oss-trust-framework/
 +-- config/
 |   +-- pipeline.yaml               # Gate thresholds and circuit breakers
 |   +-- trusted_publishers.yaml     # Publisher allowlist (100+ packages, 7 ecosystems)
+|   +-- hallucination_watchlist.txt  # Curated LLM hallucination watchlist (Gate 0)
 +-- requirements.txt                # Framework runtime deps (pinned, Dependabot-clean)
 +-- framework_deps.txt              # Self-validation dep declarations
-+-- tests/                          # 131 tests, all offline
++-- tests/                          # 176 tests, all offline
 +-- docs/index.html                 # Full documentation site
 +-- .github/workflows/
     +-- dep-trust-check.yml         # PR gate: auto-runs on lock file changes
@@ -732,6 +800,10 @@ The framework validates dependencies **before they enter your environment**. It 
 | Runtime exfiltration (MCP server BCC'ing email) | No | Falco, Tetragon |
 | Deferred activation (beacons after condition met) | No | Runtime monitoring |
 | Semantic impersonation (low string similarity) | No | Manual allowlist review |
+| LLM-hallucinated package name (slopsquat) | Gate 0 (SlopsquatChecker + watchlist) | — |
+| Maintainer account takeover | Gates 1 (age hold) + 2 (publisher continuity) | — |
+| ML artifact unsafe deserialization | Gate 5 (MLARTIFACT-001–004) | — |
+| Worm cross-package propagation | Gate 5 (MINISHAI-001–002) | — |
 
 ---
 
@@ -743,6 +815,12 @@ MIT — see [LICENSE](LICENSE).
 
 ## References
 
+- [GitHub actions/checkout v7 — Safer pull_request_target defaults (June 2026)](https://github.blog/changelog/2026-06-18-safer-pull_request_target-defaults-for-github-actions-checkout/)
+- [GitHub Actions hardens checkout security to block pwn request attacks — InfoWorld](https://www.infoworld.com/article/4188038/github-actions-hardens-checkout-security-to-block-pwn-request-attacks.html)
+- [npm v12 upcoming breaking changes — GitHub Changelog (June 2026)](https://github.blog/changelog/2026-06-09-upcoming-breaking-changes-for-npm-v12/)
+- [GitHub finally pulls the plug on automatic install script execution for npm — InfoWorld](https://www.infoworld.com/article/4183849/github-finally-pulls-the-plug-on-automatic-install-script-execution-for-npm.html)
+- [What's coming to our GitHub Actions 2026 security roadmap — GitHub Blog](https://github.blog/news-insights/product-news/whats-coming-to-our-github-actions-2026-security-roadmap/)
+- [Strengthening supply chain security: Preparing for the next malware campaign — GitHub Blog](https://github.blog/security/supply-chain-security/strengthening-supply-chain-security-preparing-for-the-next-malware-campaign/)
 - [IronWorm: Shai-Hulud's rustier cousin — JFrog Security Research](https://research.jfrog.com/post/iron-worm-shai-hulud-rustier-cousin/)
 - [IronWorm malware hits 36 npm packages — BleepingComputer](https://www.bleepingcomputer.com/news/security/new-ironworm-malware-hits-36-packages-in-npm-supply-chain-attack/)
 - [Miasma compromises 32 Red Hat npm packages — devops.com](https://devops.com/shai-hulud-clone-miasma-compromises-32-red-hat-npm-packages/)
@@ -755,4 +833,7 @@ MIT — see [LICENSE](LICENSE).
 - [SLSA Framework](https://slsa.dev)
 - [npm provenance attestations](https://docs.npmjs.com/generating-provenance-statements)
 - [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/)
+- [Mini Shai-Hulud self-replicating npm worm — Security research (2026)](https://socket.dev)
+- [Slopsquatting: LLM hallucination package attacks — Socket.dev (2026)](https://socket.dev)
+- [crates.io Trusted Publishing (RFC #3691)](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html)
 - [gVisor container sandbox](https://gvisor.dev)

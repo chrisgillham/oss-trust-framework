@@ -148,6 +148,9 @@ python src/demo.py --scenario ironworm
 - `--memory=512m --cpus=1` limits resource exhaustion from crypto mining payloads
 - The install target directory is a temp dir deleted after each check —
   no malicious code persists to the host filesystem
+- MLARTIFACT patterns (MLARTIFACT-001–004) detect unsafe ML deserialization calls
+  (`torch.load`, `pickle.loads`, `pd.read_parquet`, `joblib.load`) via the `python_call`
+  event type — same behavioral-matching approach as IMDS/Tor/credential-file patterns
 
 ---
 
@@ -159,4 +162,6 @@ Once the runner is live in your CI, update:
 2. `docs/index.html` — replace amber stub banners with green confirmed coverage
 3. OWASP table — change CICD-SEC-3 and CICD-SEC-6 from "partial" to "full"
 4. `sandbox/runner.py` — remove the STUB warning from the module docstring
-5. Bump to v0.4.0
+5. Ensure the runner emits `python_call` events for Python-level calls so that
+   MLARTIFACT patterns fire correctly during ML artifact evaluation
+6. Bump to next minor version
