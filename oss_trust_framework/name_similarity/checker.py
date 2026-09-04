@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -288,7 +289,23 @@ async def _npm_slopsquat_signals(
         # match -- "github.com" in url would pass on evil-github.com or
         # notgithub.com. Check that the parsed hostname IS github.com exactly.
         readme_words = len(readme.split())
+<<<<<<< HEAD
         has_github = _is_github_url(repo_url) or _readme_has_github_link(readme)
+=======
+
+        def _is_github_url(value: str) -> bool:
+            if not value:
+                return False
+            try:
+                parsed = urlparse(value)
+                host = (parsed.hostname or "").lower()
+                return host == "github.com" or host.endswith(".github.com")
+            except Exception:
+                return False
+
+        readme_urls = re.findall(r"https?://[^\s)>\]\"']+", readme, flags=re.IGNORECASE)
+        has_github = _is_github_url(repo_url) or any(_is_github_url(u) for u in readme_urls)
+>>>>>>> 3de5e335777b0907eb5607b20adb987cfb50d98d
         if readme_words < 200 and not has_github:
             signals.append(f"sparse_readme:{readme_words}w")
 
