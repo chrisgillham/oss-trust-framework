@@ -12,5 +12,5 @@ python-dotenv==1.2.2
 click==8.1.8
 pydantic==2.9.2
 pyotp==2.9.0
-cryptography==46.0.7
+cryptography==50.0.0
 rich==13.9.4
