@@ -445,6 +445,67 @@ The following items were added based on five supply chain attack patterns observ
 
 ---
 
+### 🔴 P0 — User Experience & Developer Workflow · *Framework incomplete without user guidance*
+
+**Priority:** Critical — Framework produces decisions but developers don't know what to do when they receive a dependency update PR. Blocks adoption; adoption metrics currently unmeasurable without PR bot integration.
+
+**Current state:** Framework runs gates, outputs JSON, requires manual interpretation. No integration with Dependabot/Renovate workflows. No GitHub Actions template. No decision guidance.
+
+**Remaining gaps:**
+
+| Item | Gate | Effort | Impact | Dependencies |
+|------|------|--------|--------|---|
+| GitHub Actions workflow template & PR bot integration | — | 1 sprint | Automated checks in dependency PRs; PR comment with pass/quarantine/block guidance | — |
+| PR comment formatter (decision logic → human-readable output) | — | 3 days | Developers see ✅/⚠️/🚫 with actionable next steps instead of JSON | PR bot |
+| `/approve-quarantine` slash command + audit trail | — | 1 sprint | Compliance-auditable record of who approved quarantined packages when | PR bot |
+| OpenSSF Scorecard API integration (Gate 3 enhancement) | 3 | 2 sprints | Live queries to scorecard.dev for maintenance/security posture; red badge auto-quarantine; trend analysis (30-day score drops) | Scorecard API access |
+| Scorecard configuration & decision thresholds | config | 1 sprint | `pipeline.yaml` entries for Scorecard threshold (default 70/100), critical badge list, trend window | Scorecard API client |
+| User guidance documentation: "Dependency Review Workflow" | docs | 3 days | README section covering three scenarios (all passed, quarantine, blocked) with checklists and exception process | PR bot |
+| CLI flags: `--github-actions`, `--scorecard`, `--review-guidance` | CLI | 1 sprint | Enable GitHub Actions integration, query Scorecard, include detailed guidance in output | PR bot + Scorecard |
+| Audit logging for approvals & exceptions | backend | 1 sprint | Persistent record of `/approve-quarantine` decisions and exception grants for compliance audit | `/approve-quarantine` command |
+| Scorecard trend analysis & historical tracking | backend | 2 sprints | Detect score drop > 5 points in 30-day window; maintain API result cache; alert on sudden maintenance decline | Scorecard API client |
+
+**Reference:** Keyv/Cacheable incident (2026-08-04) — framework blocked the worm via Gate 1 age hold + behavioral patterns, but had no user-facing integration to guide developers in Dependabot/Renovate PRs. Adoption blocked without this UX layer.
+
+**Success criteria:**
+- ✅ New contributor sees clear pass/fail/review guidance in their first dependency PR
+- ✅ Manual review time < 5 minutes for normal packages (using provided checklists)
+- ✅ Audit trail exists for security exception approvals
+- ✅ Adoption metrics via `--github-actions` flag usage in CI
+
+---
+
+### 🔴 P1 — Gate 5 Behavioral Patterns · *Keyv/Cacheable credential worm (2026-08-04)*
+
+**Attack pattern:** On August 4, 2026, maintainer account compromise + valid provenance signatures allowed a credential-stealing worm to propagate across npm via a malicious preinstall hook that downloaded a standalone Bun runtime, executed an obfuscated second stage payload, harvested cloud/CI credentials, and republished trojanized versions of other packages using stolen npm tokens. The worm also wrote persistence hooks to `.claude/settings.json` and `.vscode/tasks.json`, enabling auto-execution when developers opened the project in Claude Code or VS Code.
+
+**Current gate coverage:**
+- Gate 1 (age hold) ✅ blocked keyv@6.0.0 for 24h (strongest defense; Socket detected in 6 min anyway)
+- Gate 2 (provenance) ❌ passed — valid signatures; account compromise is outside provenance scope
+- Gate 2.5c (PR provenance) ✅ should have blocked (direct main push, no merged PR) — depends on proper configuration
+- Gate 5 (behavioral) ⚠️ partial — credential theft matches existing patterns (IRONWORM-003/CRED), but IDE hook persistence is new vector not in current 34-pattern library
+
+**Gap:** Gate 5 lacks specific patterns for:
+1. **IDE execution hooks** (`.claude/settings.json`, `.vscode/tasks.json` writes with command fields)
+2. **Runtime binary downloads in preinstall** (Bun/Node/Python downloads before sandbox payload execution)
+3. **Obfuscated large payloads** (728 KB minified JS in preinstall context)
+4. **Cross-package worm propagation** (single-package evaluation misses self-replicating velocity — worm hit 440+ packages in 30 minutes)
+
+**Proposed enhancements:**
+
+| Item | Gate | Effort | Notes |
+|------|------|--------|-------|
+| Gate 5: IDE execution hook detection | 5 | 4 hr | **For backlog** — New patterns `IDE-HOOK-001` (Claude Code `.claude/settings.json` with `command` field), `IDE-HOOK-002` (VS Code `.vscode/tasks.json` with `args` field to malicious targets). Detect writes to these paths during install-time sandbox with embedded shell commands. Severity: BLOCK. |
+| Gate 5: Runtime binary download detection | 5 | 3 hr | **For backlog** — Preinstall hook runs `curl`/`wget`/`fetch` for large runtime artifacts (Bun, Python, Node). New pattern `RUNTIME-DOWNLOAD-001` for `https://bun.sh` and similar. Rarity: legitimate preinstall scripts rarely download gigabyte-sized runtimes. Severity: QUARANTINE (context-dependent). |
+| Gate 5: obfuscated payload detection | 5 | 2 hr | **For backlog** — Preinstall hook downloads file >500 KB or runs `npm i` of minified bundle (terser/swc/esbuild markers). New pattern `OBFUSCATION-001`. Severity: QUARANTINE (obfuscation alone ≠ malice, but warrants review). |
+| Gate 5: cross-package worm propagation signal | 5 | 3 sprints | ⚠️ **Architectural** — Single-package evaluation by design; detecting 440-package cascade requires multi-package analysis or real-time stream monitoring. Proposal: add `/check-cascade` API endpoint that queries npm registry for recent publishes by same maintainer account within 1h window. Alert if simultaneous publish of 5+ packages. Effort: significant; may not be worth vs. Gate 1 age hold already catching it. |
+| Gate 5: "Mini Shai-Hulud" worm signature | 5 | 2 hr | **For backlog** — Composite pattern: preinstall hook → downloads runtime → writes credential-exfil config → uploads to GitHub. New pattern `KEYV-WORM-001` (preinstall + Bun + `~/.github/` write + `github.com/upload` HTTP). Severity: BLOCK. |
+| `config/trusted_publishers.yaml`: publish velocity monitoring | config | 1 hr | **For backlog** — Add optional `monitor_publish_velocity: true` tag for high-download packages. Trigger MEDIUM alert if >5 versions published in <1h from same account (indicator of account compromise running auto-publish loop). Keyv worm published 11 packages across multiple namespaces in 35 minutes. |
+
+**Reference:** Keyv / Cacheable / flat-cache / file-entry-cache npm worm campaign (2026-08-04); Socket, Snyk, Wiz, SafeDep analyses
+
+---
+
 ## Attack coverage table — updated
 
 The following rows are added to the Attack Coverage table in `README.md` based on the above analysis. The existing table covers Miasma, IronWorm, TanStack, Bitwarden CLI, and XZ Utils.
@@ -457,4 +518,5 @@ The following rows are added to the Attack Coverage table in `README.md` based o
 | **Slopsquatting** | 2026 | npm, PyPI (LLM-hallucinated names) | Registering package names hallucinated by AI coding assistants | 0 (partial — only catches similarity to known packages) | Hallucinated names have no allowlist anchor; blind spot in current Gate 0 design — see P1 above |
 | **Trojanized AI tooling** | 2026 | npm, PyPI (Claude Code clones, MCP plugins) | Impersonation packages for AI dev tools | 0 (partial) | AI tool names need explicit allowlist entries — see P1 above |
 | **Maintainer takeover** | 2026 | npm (chalk, debug class) | Credential stuffing / spear-phishing → silent publish | 1 (age hold) | Publisher identity change not detected; Gate 1 is the only current defense — see P2 above |
+| **Keyv / Cacheable worm** | 2026-08-04 | 440+ npm (keyv, cacheable, flat-cache, file-entry-cache, and cascade) | Compromised maintainer account + direct main push + valid provenance + preinstall credential stealer + IDE hook persistence | 1 (age hold), 2.5c (PR check if configured), 5 (behavioral: credential theft + IDE hooks) | Account compromise undetectable by Gate 2 (provenance valid); Gate 5 IDE hooks newly identified; cross-package propagation (440 packages in 30 min) detectable only via velocity monitoring (not yet implemented) — see P1 above |
 
