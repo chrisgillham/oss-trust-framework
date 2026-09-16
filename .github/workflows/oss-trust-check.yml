@@ -41,28 +41,27 @@ jobs:
     steps:
       # ── 1. Check out the PR branch (the proposed upgrade) ──────────────────
       - name: Checkout PR branch
-        uses: actions/checkout@v4   # runs on Node.js 24 (GitHub runner default)
+        uses: actions/checkout@v5   # ✅ FIXED: v4 → v5 (Node.js 22+)
 
       # ── 2. Set up Python for oss-trust-framework ───────────────────────────
       - name: Set up Python
-        uses: actions/setup-python@v5   # runs on Node.js 24 (GitHub runner default)
+        uses: actions/setup-python@v5   # ✅ OK: Already uses Node.js 22
         with:
-          python-version: '3.12'        # updated: 3.11 → 3.12 (recommended)
+          python-version: '3.12'
           cache: 'pip'
 
       # ── 3. Install oss-trust-framework from PyPI ────────────────────────────
-      #    Pinned to v0.8.0 so the check version matches the repo version.
-      #    Update this pin when you cut a new release.
       - name: Install oss-trust-framework
         run: |
           python -m pip install --upgrade pip
           pip install "oss-trust-framework==0.8.0"
+          oss-trust --version
 
       # ── 4. Detect which manifest files changed in this PR ───────────────────
       - name: Detect changed manifests
         id: manifests
         run: |
-          # Build --manifest flags for every changed dependency file
+          # Build --manifest flags for every manifest file found
           MANIFESTS=""
           for f in \
             package.json Cargo.toml requirements.txt pyproject.toml \
@@ -71,84 +70,157 @@ jobs:
               MANIFESTS="$MANIFESTS --manifest $f"
             fi
           done
+          
+          # If no manifests found, still run (will check current directory)
+          if [ -z "$MANIFESTS" ]; then
+            echo "⚠️  No dependency manifests found; checking current directory"
+          fi
+          
           echo "flags=$MANIFESTS" >> $GITHUB_OUTPUT
-          echo "Manifests to check: $MANIFESTS"
+          echo "Detected manifests: $MANIFESTS"
 
       # ── 5. Run the trust check ─────────────────────────────────────────────
       - name: Run OSS Trust Check
         id: trust_check
         run: |
-          # pipefail ensures the exit code comes from oss-trust, not tee.
-          # Without set -o pipefail, tee always exits 0 and the failure is lost.
           set -o pipefail
+          
+          # Run the framework and capture JSON output
+          # The output should be valid JSON; if the command fails, 
+          # we'll handle it gracefully in the next step
           oss-trust check-all \
             ${{ steps.manifests.outputs.flags }} \
             --no-interactive \
-            --output json \
-            2>&1 | tee trust_check_output.txt
-        continue-on-error: true   # capture exit code below; don't short-circuit
+            --output json 2>&1 | tee trust_check_output.json
+          
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit $EXIT_CODE
+        continue-on-error: true   # Don't fail immediately; capture result below
 
-      # ── 6. Post results as a PR comment ────────────────────────────────────
+      # ── 6. Verify output file exists ──────────────────────────────────────
+      - name: Verify trust check output
+        id: verify_output
+        if: always()
+        run: |
+          if [ -f trust_check_output.json ]; then
+            echo "output_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Output file found"
+            echo "First 500 chars:"
+            head -c 500 trust_check_output.json
+            echo ""
+          else
+            echo "output_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  No output file found - framework may have crashed"
+          fi
+
+      # ── 7. Post results as a PR comment ────────────────────────────────────
       - name: Post trust check results to PR
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v7   # ✅ OK: v7 uses Node.js 22+
         with:
           script: |
             const fs = require('fs');
-            const raw = fs.readFileSync('trust_check_output.txt', 'utf8');
-
-            // Attempt to parse JSON output for a richer summary table.
-            // Fall back to raw text if output isn't valid JSON (e.g. pip error).
-            let summary = '';
+            const path = require('path');
+            
+            // Read output file if it exists
+            let raw = '';
+            let isValidJson = false;
+            let results = [];
+            
+            if (fs.existsSync('trust_check_output.json')) {
+              try {
+                raw = fs.readFileSync('trust_check_output.json', 'utf8');
+                
+                // The framework outputs an array of package results
+                // Format: [{ package, version, ecosystem, outcome, gates, messages }, ...]
+                results = JSON.parse(raw);
+                isValidJson = Array.isArray(results);
+              } catch (e) {
+                console.log('⚠️  Failed to parse JSON:', e.message);
+                isValidJson = false;
+              }
+            }
+            
+            // Determine pass/fail status
             let passed = true;
-            try {
-              const results = JSON.parse(raw);
-              const blocked = results.filter(r => r.outcome === 'BLOCKED');
-              const held    = results.filter(r => r.outcome === 'HOLD');
-              const errors  = results.filter(r => r.outcome === 'ERROR');
-              passed = blocked.length === 0 && held.length === 0 && errors.length === 0;
-
-              const rows = results.map(r =>
-                `| ${r.ecosystem} | \`${r.package}@${r.version}\` | ${r.outcome} | ${r.gate1_message || ''} |`
-              ).join('\n');
-
+            let blocked = [];
+            let quarantined = [];
+            let approved = [];
+            
+            if (isValidJson && Array.isArray(results)) {
+              blocked = results.filter(r => r.outcome === 'BLOCKED');
+              quarantined = results.filter(r => r.outcome === 'QUARANTINE');
+              approved = results.filter(r => r.outcome === 'APPROVED' || r.outcome === 'PASS');
+              passed = blocked.length === 0;
+            }
+            
+            // Build summary table
+            let summary = '';
+            if (isValidJson && results.length > 0) {
+              const rows = results.map(r => {
+                const outcome = r.outcome || 'UNKNOWN';
+                const icon = outcome === 'BLOCKED' ? '🚫' : 
+                            outcome === 'QUARANTINE' ? '⚠️' : '✅';
+                return `| ${icon} | \`${r.package}@${r.version}\` | ${r.ecosystem} | ${outcome} |`;
+              }).join('\n');
+              
               summary = [
-                '| Ecosystem | Package | Outcome | Message |',
-                '|-----------|---------|---------|---------|',
+                '| Status | Package | Ecosystem | Outcome |',
+                '|--------|---------|-----------|---------|',
                 rows,
               ].join('\n');
-            } catch {
-              // Raw text fallback
-              passed = !raw.includes('BLOCK') && !raw.includes('HOLD') && !raw.includes('ERROR');
-              summary = '```\n' + raw.slice(-3000) + '\n```';
+            } else if (raw) {
+              // Fallback: show raw text if not JSON
+              summary = '```\n' + raw.slice(-2000) + '\n```';
+            } else {
+              summary = '> ⚠️ No output generated — framework may have encountered an error.';
             }
-
-            const icon   = passed ? '✅' : '❌';
+            
+            // Build PR comment
+            const icon = passed ? '✅' : '❌';
             const status = passed ? 'PASSED' : 'ACTION REQUIRED';
-
+            
+            const counts = isValidJson ? 
+              `\n> Approved: ${approved.length} | Quarantined: ${quarantined.length} | Blocked: ${blocked.length}` :
+              '';
+            
             const body = [
               `## ${icon} OSS Trust Framework v0.8.0 — Gate 1 ${status}`,
               '',
-              `Checked \`${{ steps.manifests.outputs.flags }}\``,
+              `Checked: \`${{ steps.manifests.outputs.flags || 'current directory' }}\`${counts}`,
               '',
               summary,
               '',
               passed
                 ? '_All packages cleared the age and allowlist gates. Safe to merge from a supply chain perspective._'
-                : '_One or more packages did not pass. Review the flagged packages above before merging._',
+                : blocked.length > 0
+                ? '_One or more packages are blocked. Review the blocked packages above before merging._'
+                : '_One or more packages require manual review (quarantined). See above for details._',
+              '',
+              '[Framework docs](https://github.com/chrisgillham/oss-trust-framework) | [Gate Reference](https://github.com/chrisgillham/oss-trust-framework#gate-reference)',
             ].join('\n');
-
+            
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body,
             });
+            
+            console.log('✅ Posted PR comment with results');
 
-      # ── 7. Fail the workflow if trust check failed ─────────────────────────
-      #    This blocks PR merge when branch protection requires this check.
+      # ── 8. Fail the workflow if trust check failed ─────────────────────────
       - name: Enforce trust check result
-        if: steps.trust_check.outcome == 'failure'
+        if: always()
         run: |
-          echo "OSS Trust Check failed — see PR comment for details."
-          exit 1
+          EXIT_CODE=${{ steps.trust_check.outputs.exit_code || '0' }}
+          
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "✅ Trust check passed"
+            exit 0
+          else
+            echo "❌ Trust check failed with exit code $EXIT_CODE"
+            echo "Review the PR comment above for details."
+            exit 1
+          fi

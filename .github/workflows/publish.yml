@@ -12,10 +12,10 @@ jobs:
     name: Build and publish to PyPI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5   # ✅ FIXED: v4 → v5 (Node.js 22+)
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5   # ✅ OK: Already uses Node.js 22
         with:
           python-version: "3.12"
 
