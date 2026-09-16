@@ -5,24 +5,55 @@ Detects typosquatting and impersonation attacks by comparing the requested
 package name against all entries in the trusted publishers allowlist using
 multiple similarity algorithms.
 
-Real-world example this catches:
+Real-world examples this catches:
   postmark-mcp-evil  vs  postmark-mcp  (suffix addition)
   reqeusts           vs  requests      (transposition typosquat)
   cryptography2      vs  cryptography  (numeric suffix)
+  torch-data         vs  torchdata     (separator insertion)
+
+2026-09: added SlopsquatChecker for LLM hallucination blind spot.
+  Slopsquatting — registering package names frequently hallucinated by AI
+  coding assistants (ChatGPT, Claude, Copilot) — bypasses allowlist-anchored
+  similarity because hallucinated names have no legitimate counterpart to
+  measure against. SlopsquatChecker uses a heuristic signal battery instead:
+    1. Package registered very recently (age < 30 days)
+    2. Zero prior version history (only version is the one being checked)
+    3. Sparse or absent README (< 200 words, no GitHub link)
+    4. Zero reverse dependencies (no packages depend on it)
+    5. No OpenSSF Scorecard entry
+  Three-of-five signals → WARN; five-of-five → BLOCK.
+  The name also checked against config/hallucination_watchlist.txt —
+  a curated list of package names documented as LLM hallucinations.
+  Exact watchlist match → WARN regardless of other signals.
+  Also covers AI tooling impersonation via a dedicated allowlist section
+  in trusted_publishers.yaml.
 
 Design notes:
   - Runs BEFORE all other gates (Gate 0)
-  - No network access required — purely local string comparison
-  - Allowlist (trusted_publishers.yaml) is the source of truth
+  - Allowlist-anchored similarity check: no network access required
+  - SlopsquatChecker: requires registry API calls (fail-open on error)
   - Exact allowlist match = immediate PASS, no further checking
   - Thresholds configurable in config/pipeline.yaml
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional
+
+import asyncio
+import logging
 import re
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+import httpx
+
+logger = logging.getLogger(__name__)
+
+# Path to the curated hallucination watchlist, relative to this file's package root.
+# Can be overridden at call time for testing.
+_DEFAULT_WATCHLIST = Path(__file__).parent.parent.parent / "config" / "hallucination_watchlist.txt"
 
 
 class SimilarityDecision(str, Enum):
@@ -41,10 +72,11 @@ class SimilarityResult:
     algorithm: str
     message: str
     in_allowlist: bool
+    slopsquat_signals: list[str] = field(default_factory=list)  # fired heuristic labels
 
 
 # ---------------------------------------------------------------------------
-# String similarity algorithms
+# String similarity algorithms (unchanged)
 # ---------------------------------------------------------------------------
 
 def _levenshtein(a: str, b: str) -> int:
@@ -97,7 +129,6 @@ def _prefix_similarity(a: str, b: str) -> float:
     shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
     if longer.startswith(shorter):
         suffix = longer[len(shorter):]
-        # Short suffixes (-evil, -2, -v2) are more suspicious
         return 0.95 if len(suffix.lstrip("-")) <= 4 else 0.85
     return 0.0
 
@@ -132,6 +163,361 @@ def _composite_similarity(a: str, b: str) -> tuple[float, str]:
 
 
 # ---------------------------------------------------------------------------
+# Hallucination watchlist loader
+# ---------------------------------------------------------------------------
+
+def _load_watchlist(watchlist_path: Path | None = None) -> frozenset[str]:
+    """
+    Load the curated LLM hallucination watchlist from disk.
+
+    The file format is one package name per line; lines starting with '#'
+    and blank lines are ignored. Names are normalised to lowercase.
+    Returns an empty frozenset (silently) if the file doesn't exist yet —
+    the watchlist is optional, and missing it must never fail the gate.
+    """
+    path = watchlist_path or _DEFAULT_WATCHLIST
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        return frozenset(
+            line.strip().lower()
+            for line in lines
+            if line.strip() and not line.strip().startswith("#")
+        )
+    except FileNotFoundError:
+        return frozenset()
+    except Exception as exc:
+        logger.warning("Could not load hallucination watchlist from %s: %s", path, exc)
+        return frozenset()
+
+
+# ---------------------------------------------------------------------------
+# SlopsquatChecker — registry heuristic battery
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SlopsquatResult:
+    """Result of the slopsquat heuristic battery for one package."""
+    signals_fired: list[str]       # human-readable label for each signal that fired
+    signal_count: int
+    on_watchlist: bool
+    decision: SimilarityDecision   # PASS / WARN / BLOCK from this check alone
+    message: str
+
+
+def _is_github_url(url: str) -> bool:
+    """
+    Return True only when the URL's hostname is exactly github.com (or a
+    github.com subdomain). Uses urllib.parse so that evil-github.com,
+    notgithub.com, and github.com.evil.example never match.
+
+    Fixes CWE-20 (py/incomplete-url-substring-sanitization): a bare
+    `"github.com" in url.lower()` substring check is insufficient because
+    the string can appear at an arbitrary position in the URL.
+    """
+    if not url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        hostname = urlparse(url.lower()).hostname or ""
+        return hostname == "github.com" or hostname.endswith(".github.com")
+    except Exception:
+        return False
+
+
+def _readme_has_github_link(text: str) -> bool:
+    """
+    Scan free-form README text for a github.com link using hostname
+    validation rather than substring matching.
+    """
+    import re
+    for candidate in re.findall(r'https?://[^\s\)\"\']+', text):
+        if _is_github_url(candidate):
+            return True
+    return False
+
+
+async def _npm_slopsquat_signals(
+    package: str,
+    client: httpx.AsyncClient,
+    max_age_days: int,
+) -> list[str]:
+    """
+    Query the npm registry for slopsquat heuristic signals.
+    Returns a list of signal labels that fired (empty = no concern).
+    Fails open — any HTTP/network error returns no signals.
+    """
+    signals: list[str] = []
+    try:
+        resp = await client.get(
+            f"https://registry.npmjs.org/{package}",
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            # Package doesn't exist at all — not a slopsquat concern (just unknown)
+            return signals
+        if resp.status_code != 200:
+            return signals
+
+        data = resp.json()
+        time_data = data.get("time", {})
+        versions = list(data.get("versions", {}).keys())
+        created_str = time_data.get("created", "")
+        description = data.get("description", "")
+        readme = data.get("readme", "")
+        repository = data.get("repository", {})
+        repo_url = (
+            repository.get("url", "") if isinstance(repository, dict) else str(repository)
+        )
+
+        # Signal 1: recently created
+        if created_str:
+            from datetime import datetime, timezone
+            try:
+                created = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                age_days = (datetime.now(timezone.utc) - created).days
+                if age_days < max_age_days:
+                    signals.append(f"recently_created:{age_days}d")
+            except ValueError:
+                pass
+
+        # Signal 2: zero prior versions (only one version total)
+        if len(versions) <= 1:
+            signals.append("zero_prior_versions")
+
+        # Signal 3: sparse README / no GitHub link
+        # CWE-20 fix: use urllib.parse hostname check rather than substring
+        # match -- "github.com" in url would pass on evil-github.com or
+        # notgithub.com. Check that the parsed hostname IS github.com exactly.
+        readme_words = len(readme.split())
+<<<<<<< HEAD
+        has_github = _is_github_url(repo_url) or _readme_has_github_link(readme)
+=======
+
+        def _is_github_url(value: str) -> bool:
+            if not value:
+                return False
+            try:
+                parsed = urlparse(value)
+                host = (parsed.hostname or "").lower()
+                return host == "github.com" or host.endswith(".github.com")
+            except Exception:
+                return False
+
+        readme_urls = re.findall(r"https?://[^\s)>\]\"']+", readme, flags=re.IGNORECASE)
+        has_github = _is_github_url(repo_url) or any(_is_github_url(u) for u in readme_urls)
+>>>>>>> 3de5e335777b0907eb5607b20adb987cfb50d98d
+        if readme_words < 200 and not has_github:
+            signals.append(f"sparse_readme:{readme_words}w")
+
+        # Signal 4: zero reverse dependencies (dependents)
+        try:
+            dep_resp = await client.get(
+                f"https://registry.npmjs.org/-/v1/search?text=dependencies:{package}&size=1",
+                timeout=8,
+            )
+            if dep_resp.status_code == 200:
+                dep_data = dep_resp.json()
+                if dep_data.get("total", 0) == 0:
+                    signals.append("zero_dependents")
+        except Exception:
+            pass  # fail open
+
+        # Signal 5: no OpenSSF Scorecard entry
+        try:
+            sc_resp = await client.get(
+                f"https://api.securityscorecards.dev/projects/github.com/{repo_url.split('github.com/')[-1].rstrip('.git')}",
+                timeout=8,
+            )
+            if sc_resp.status_code == 404:
+                signals.append("no_scorecard")
+        except Exception:
+            pass  # fail open
+
+    except Exception as exc:
+        logger.debug("npm slopsquat check failed for %s: %s", package, exc)
+
+    return signals
+
+
+async def _pypi_slopsquat_signals(
+    package: str,
+    client: httpx.AsyncClient,
+    max_age_days: int,
+) -> list[str]:
+    """
+    Query the PyPI JSON API for slopsquat heuristic signals.
+    """
+    signals: list[str] = []
+    try:
+        resp = await client.get(
+            f"https://pypi.org/pypi/{package}/json",
+            timeout=10,
+        )
+        if resp.status_code == 404:
+            return signals
+        if resp.status_code != 200:
+            return signals
+
+        data = resp.json()
+        info = data.get("info", {})
+        releases = data.get("releases", {})
+        all_versions = [v for v, files in releases.items() if files]
+
+        project_urls = info.get("project_urls") or {}
+        home_page = info.get("home_page") or ""
+        description = info.get("description") or ""
+        has_github = "github.com" in home_page.lower() or any(
+            "github.com" in (v or "").lower() for v in project_urls.values()
+        )
+
+        # Signal 1: recently created — use first upload date of oldest release
+        oldest_upload = None
+        for _ver, files in releases.items():
+            for f in files:
+                upload_str = f.get("upload_time_iso_8601", "")
+                if upload_str:
+                    from datetime import datetime, timezone
+                    try:
+                        dt = datetime.fromisoformat(upload_str.replace("Z", "+00:00"))
+                        if oldest_upload is None or dt < oldest_upload:
+                            oldest_upload = dt
+                    except ValueError:
+                        pass
+        if oldest_upload:
+            from datetime import datetime, timezone
+            age_days = (datetime.now(timezone.utc) - oldest_upload).days
+            if age_days < max_age_days:
+                signals.append(f"recently_created:{age_days}d")
+
+        # Signal 2: zero prior versions
+        if len(all_versions) <= 1:
+            signals.append("zero_prior_versions")
+
+        # Signal 3: sparse description / no GitHub link
+        desc_words = len(description.split())
+        if desc_words < 200 and not has_github:
+            signals.append(f"sparse_readme:{desc_words}w")
+
+        # Signal 4: zero reverse dependencies — PyPI doesn't expose this directly;
+        # use deps.dev as a proxy
+        try:
+            dep_resp = await client.get(
+                f"https://api.deps.dev/v3alpha/systems/pypi/packages/{package}",
+                timeout=8,
+            )
+            if dep_resp.status_code == 200:
+                dep_data = dep_resp.json()
+                # No dependents field → treat as zero
+                if not dep_data.get("versions"):
+                    signals.append("zero_dependents")
+        except Exception:
+            pass
+
+        # Signal 5: no OpenSSF Scorecard entry (same as npm — requires GitHub link)
+        if not has_github:
+            signals.append("no_scorecard")
+
+    except Exception as exc:
+        logger.debug("PyPI slopsquat check failed for %s: %s", package, exc)
+
+    return signals
+
+
+async def check_slopsquat(
+    package: str,
+    ecosystem: str,
+    warn_signal_count: int = 3,
+    block_signal_count: int = 5,
+    max_age_days: int = 30,
+    watchlist_path: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> SlopsquatResult:
+    """
+    Slopsquat heuristic battery for a package not found in the allowlist.
+
+    Fires up to five signals per ecosystem; three-of-five → WARN,
+    five-of-five → BLOCK. Also checks the curated hallucination watchlist —
+    an exact watchlist hit is always at least WARN regardless of signal count.
+
+    Fails open on all network errors: a registry lookup failure produces no
+    signals and never degrades the gate outcome.
+
+    Args:
+        package:           Package name being validated.
+        ecosystem:         "npm" | "PyPI" | others (non-npm/PyPI return PASS).
+        warn_signal_count: Number of signals required for WARN (default 3).
+        block_signal_count: Number of signals required for BLOCK (default 5).
+        max_age_days:      Age threshold for the "recently created" signal.
+        watchlist_path:    Override path to hallucination_watchlist.txt.
+        http_client:       Optional pre-configured client (for testing).
+    """
+    watchlist = _load_watchlist(watchlist_path)
+    on_watchlist = _normalise(package).replace("-", "") in {
+        _normalise(w).replace("-", "") for w in watchlist
+    } or package.lower() in watchlist
+
+    # Only npm and PyPI have enough registry API coverage for reliable signals.
+    # Other ecosystems return PASS with a note — slopsquat risk still exists
+    # but we don't have the data to evaluate it yet.
+    if ecosystem not in ("npm", "PyPI"):
+        decision = SimilarityDecision.WARN if on_watchlist else SimilarityDecision.PASS
+        return SlopsquatResult(
+            signals_fired=[],
+            signal_count=0,
+            on_watchlist=on_watchlist,
+            decision=decision,
+            message=(
+                f"Slopsquat heuristic not available for {ecosystem} — registry API coverage pending."
+                + (f" {package} is on the LLM hallucination watchlist." if on_watchlist else "")
+            ),
+        )
+
+    own_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=15)
+
+    try:
+        if ecosystem == "npm":
+            signals = await _npm_slopsquat_signals(package, client, max_age_days)
+        else:
+            signals = await _pypi_slopsquat_signals(package, client, max_age_days)
+    finally:
+        if own_client:
+            await client.aclose()
+
+    count = len(signals)
+
+    if count >= block_signal_count:
+        decision = SimilarityDecision.BLOCK
+        message = (
+            f"BLOCK: {package} fires {count}/{block_signal_count} slopsquat signals "
+            f"({', '.join(signals)}). Strong indicator of a hallucinated or newly "
+            f"registered impersonation package."
+        )
+    elif count >= warn_signal_count or on_watchlist:
+        decision = SimilarityDecision.WARN
+        watchlist_note = f" Additionally, {package} appears on the LLM hallucination watchlist." if on_watchlist else ""
+        message = (
+            f"WARN: {package} fires {count} slopsquat signal(s) "
+            f"({', '.join(signals) or 'none'}).{watchlist_note} "
+            f"Manual review recommended — possible slopsquat or AI-hallucinated package name."
+        )
+    else:
+        decision = SimilarityDecision.PASS
+        message = (
+            f"{package} — slopsquat heuristic: {count} signal(s) fired "
+            f"({', '.join(signals) or 'none'}). Below warn threshold ({warn_signal_count})."
+        )
+
+    return SlopsquatResult(
+        signals_fired=signals,
+        signal_count=count,
+        on_watchlist=on_watchlist,
+        decision=decision,
+        message=message,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Gate 0 entry point
 # ---------------------------------------------------------------------------
 
@@ -158,9 +544,11 @@ def check_name_similarity(
 
     Coverage note:
         This gate addresses typosquatting and simple impersonation (suffix-addition,
-        transposition). It does NOT detect semantically deceptive names with low
-        string similarity (e.g. "secure-requests" impersonating "requests").
-        Runtime security monitoring remains necessary as a complementary control.
+        transposition). Slopsquatting (hallucinated names with no allowlist anchor)
+        is covered by check_slopsquat() — call that separately for packages not
+        found in the allowlist. It does NOT detect semantically deceptive names
+        with very low string similarity (e.g. "secure-requests" impersonating
+        "requests"). Runtime security monitoring remains a complementary control.
     """
     ecosystem_publishers = trusted_publishers.get(ecosystem, {})
     known_packages = list(ecosystem_publishers.keys())
