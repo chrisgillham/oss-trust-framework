@@ -63,9 +63,19 @@ All external API calls (PyPI, OSV, OpenSSF Scorecard, GitHub) are mocked. Tests 
 
 ---
 
-## Implementing stub gates
+## Implementation status
 
-Three gates have working interfaces but stub implementations. These are good first issues:
+**Fully operational (v0.8.0):**
+- Gate 0: SlopsquatChecker + LLM hallucination watchlist
+- Gate 1: Age threshold validation (configurable hold windows)
+- Gate 2: Provenance attestation (Sigstore) + publisher identity continuity checks
+- Gate 2.5: PR-backed releases (direct-push detection), workflow permissions, OIDC token validation
+- Gate 3: OOB trust aggregation (OpenSSF Scorecard API, CVE databases, deps.dev)
+- Gate 5: Behavioral sandbox sandbox runner (gVisor + strace + Python audit hooks) with 43 patterns
+
+**Stub implementations (good first issues):**
+
+These gates have working interfaces but need production implementations.
 
 ### Gate 4 — SBOM delta (`oss_trust_framework/sbom/differ.py`)
 
@@ -82,21 +92,50 @@ async def diff_sbom(package: str, version: str, ecosystem: str) -> tuple[bool, s
     """
 ```
 
-### Gate 5 — Sandbox runner (`oss_trust_framework/sandbox/runner.py`)
+### Gate 4 — SBOM delta (STUB — partial implementation)
+
+Gate 4 has a working interface but limited functionality. The SBOM generation and diff logic are partially implemented; full production use requires tooling integration.
+
+```python
+async def diff_sbom(package: str, version: str, ecosystem: str) -> tuple[bool, str]:
+    """
+    Generate CycloneDX SBOM before and after upgrade, diff them,
+    and fail if unexpected transitive dependencies appear.
+    
+    Partially implemented: syft integration works; cdxgen fallback needs testing.
+    
+    Returns (passed: bool, message: str)
+    """
+```
+
+### Gate 5 — Sandbox runner (OPERATIONAL — v0.8.0)
+
+Gate 5 is fully operational with three backend options:
+
+**gVisor (production):** User-space kernel for strongest isolation. eBPF rootkit cannot escape. Recommended for Linux CI environments.
+
+**strace (Linux fallback):** Process syscall interception. Lighter than gVisor; adequate for most malware detection.
+
+**Python audit hooks (cross-platform):** File and network I/O monitoring. Fallback for Windows/Mac; no native binary detection.
 
 ```python
 async def run_sandboxed_install(package: str, version: str, ecosystem: str) -> list[dict]:
     """
-    Execute package install in a gVisor microVM with no network access.
+    Execute package install in chosen sandbox with no network access.
     Observe all syscall events and return them as a list of event dicts:
-      {"type": "network"|"file_read"|"process"|"env_access", "value": "..."}
+      {"type": "network"|"file_read"|"process"|"env_access"|"python_call", "value": "..."}
     
     Feed output to: behavioral_patterns.evaluate_sandbox_events(events)
 
     Event types: "network", "file_read", "process", "env_access", "python_call"
     (python_call is for ML artifact deserialization detection — MLARTIFACT patterns)
 
-    Runtime options: gVisor (preferred), Firecracker, Docker (least preferred)
+    Backend auto-detection: gVisor (if available) → strace (Linux) → Python hooks (fallback)
+    43 total behavioral patterns active:
+      - 18 Miasma (Red Hat npm campaign)
+      - 16 IronWorm (eBPF rootkit campaign)
+      - 4 MLARTIFACT (unsafe ML deserialization: torch.load, pickle, parquet, joblib)
+      - 5 Keyv/Cacheable (IDE hooks, worm signatures, runtime downloads)
     """
 ```
 
@@ -118,19 +157,22 @@ Each stub returns `(True, "stub message")` so the pipeline runs end-to-end. Repl
 
 1. Add a new `BehavioralPattern` entry to `BEHAVIORAL_PATTERNS` in `oss_trust_framework/sandbox/behavioral_patterns.py`
 2. Choose the appropriate `PatternCategory` (or add a new one)
-3. Set `miasma_specific=True`, `ironworm_specific=True`, `minishai_specific=True`, or `mlartifact_specific=True` if applicable
+3. Set `miasma_specific=True`, `ironworm_specific=True`, `minishai_specific=True`, `keyv_specific=True`, or `mlartifact_specific=True` if applicable
 4. Add a corresponding test in `tests/test_gate5_behavioral.py`
-5. Update the pattern count assertion: `assert len(BEHAVIORAL_PATTERNS) == N`
+5. Update the pattern count assertion: `assert len(BEHAVIORAL_PATTERNS) == 43` (or new count after your addition)
 
 Pattern ID conventions:
-- `MIASMA-XXX` — observed in Miasma/Shai-Hulud campaigns
-- `IRONWORM-XXX` — observed in IronWorm campaign
+- `MIASMA-XXX` — observed in Miasma/Shai-Hulud campaigns (18 total)
+- `IRONWORM-XXX` — observed in IronWorm campaign (16 total)
 - `MINISHAI-XXX` — observed in Mini Shai-Hulud self-replicating worm campaign
-- `MLARTIFACT-XXX` — ML artifact unsafe deserialization (Hugging Face exploit pattern)
+- `KEYV-XXX` — observed in Keyv/Cacheable compromise incident (IDE hooks, worm signatures)
+- `IDE-HOOK-XXX` — IDE auto-execution persistence (e.g., IDE-HOOK-001: .claude/settings.json)
+- `MLARTIFACT-XXX` — ML artifact unsafe deserialization (4 total: torch.load, pickle, parquet, joblib)
 - `CRED-XXX` — credential file access (cross-family)
 - `PUBLISH-XXX` — package registry publish from install context
 - `ENV-XXX` — environment variable harvesting
 - `PROC-XXX` — process injection / obfuscated subprocess
+- `RUNTIME-DOWNLOAD-XXX` — executable binary downloads in install context (Bun, Node, Python)
 
 ---
 

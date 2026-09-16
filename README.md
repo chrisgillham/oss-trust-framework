@@ -8,7 +8,7 @@
 
 A multi-gate security framework that validates open source dependency updates before they reach your application — with hardened defenses against CI/CD pipeline compromise (Miasma, Shai-Hulud, TanStack, Bitwarden, IronWorm) and a strictly controlled expedited lane for zero-day CVE patches.
 
-> **v0.8.0 — All gates fully operational for PyPI, npm, and Cargo.** Gate 0 now includes SlopsquatChecker + LLM hallucination watchlist. Gate 2 adds publisher identity continuity checks (npm/PyPI/Cargo). Gate 5 adds MINISHAI worm-propagation patterns and MLARTIFACT unsafe-deserialization patterns (40 patterns total). Registry support for 7 ecosystems — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
+> **v0.8.0 — All gates fully operational for PyPI, npm, and Cargo.** Gate 0 now includes SlopsquatChecker + LLM hallucination watchlist. Gate 2 adds publisher identity continuity checks (npm/PyPI/Cargo). Gate 3 adds live OpenSSF Scorecard API integration with red-badge auto-quarantine and 30-day trend analysis. Gate 5 adds MINISHAI worm-propagation patterns, MLARTIFACT unsafe-deserialization patterns, and IDE hook detection (43 patterns total: 18 Miasma + 16 IronWorm + 4 MLARTIFACT + 5 Keyv/Cacheable). Registry support for 7 ecosystems — see [Supported Ecosystems](#supported-ecosystems) for details. `oss-trust check-all` available as installed CLI command.
 
 ---
 
@@ -40,7 +40,7 @@ pip install oss-trust-framework
 
 # Verify
 oss-trust --version
-# oss-trust, version 0.6.1
+# oss-trust, version 0.8.0
 ```
 
 > **Windows users:** Set `$env:PYTHONUTF8 = "1"` before running any command, or add it to your PowerShell profile. See [Windows users](#3-windows-users) below.

@@ -2,10 +2,12 @@
 
 ## Supported versions
 
-| Version | Supported |
-|---|---|
-| 0.2.x | ✅ Active support |
-| 0.1.x | ❌ No longer supported — upgrade to 0.2.x |
+| Version | Supported | Notes |
+|---|---|---|
+| 0.8.x | ✅ Current release | All gates fully operational; live Scorecard API; 43 behavioral patterns |
+| 0.7.x | ✅ Active support | Minor updates only; upgrade recommended |
+| 0.6.x | ⚠️ Security patches only | End of life approaching; upgrade to 0.8.x |
+| 0.5.x and earlier | ❌ No longer supported | Upgrade to 0.8.x immediately |
 
 ---
 

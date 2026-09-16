@@ -1,6 +1,7 @@
 # OSS Trust Framework — Development Backlog
 
-> **Current version:** v0.5.1 — All gates fully operational for PyPI and npm.
+> **Current version:** v0.8.0 — All gates fully operational for PyPI and npm.
+> **Note:** README and some documentation reference older version numbers (v0.5.1, v0.6.1). Docs sync task added to backlog.
 > This document tracks planned improvements, known gaps, and contributor opportunities.
 > See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get involved.
 
@@ -445,7 +446,50 @@ The following items were added based on five supply chain attack patterns observ
 
 ---
 
-### 🔴 P0 — User Experience & Developer Workflow · *Framework incomplete without user guidance*
+### 🔴 P0 — Documentation Sync & Version Accuracy · *Docs lag behind implementation*
+
+**Priority:** Critical — README, BACKLOG, and inline docs reference outdated version numbers and feature status. Users cannot accurately determine framework capabilities from published documentation.
+
+**Current state:** 
+- pyproject.toml shows v0.6.1 
+- User reports actual implementation at v0.8.0
+- README header claims v0.5.1
+- Status overview table references features not yet in BACKLOG
+- No master source of truth for what shipped in each version
+
+**Documentation accuracy issues:**
+
+| Doc | Issue | Impact |
+|-----|-------|--------|
+| README.md header | Claims v0.5.1; actual is 0.8.0 | Users uncertain if they have latest features |
+| BACKLOG.md header | Claimed v0.5.1 before this update | Conflicting version numbers across docs |
+| Status overview table | May reference unimplemented features as complete | False confidence in gate coverage |
+| CHANGELOG.md | May be missing entries for 0.6.x → 0.8.0 | Release history incomplete |
+| Installation instructions | References outdated version output | CLI version test fails silently |
+| Gate Reference section | Feature completeness claims not verified against code | Undocumented behavioral changes |
+| Attack Coverage table | References attacks/gates that may have evolved | Threat mapping outdated |
+
+**Proposed enhancements:**
+
+| Item | Effort | Notes |
+|------|--------|-------|
+| Audit version numbers across all docs | 2 hr | Grep for "v0.5", "v0.6", "v0.7", "v0.8" and update; verify against pyproject.toml as single source of truth |
+| Update README.md with v0.8.0 and feature status | 3 hr | Verify each gate status against implementation; update examples to match current CLI |
+| Reconcile BACKLOG.md status overview table with actual code | 3 hr | Check `oss_trust_framework/gates/` implementation; mark completed items; remove outdated claims |
+| Create CHANGELOG.md or update if exists | 4 hr | Document what shipped in 0.6.0, 0.7.0, 0.8.0 (features, gates, ecosystem coverage, bug fixes) |
+| Verify CLI help text (`--help`) matches documented flags | 1 hr | Run `oss-trust check-all --help` and confirm all documented flags exist and descriptions match README |
+| Update installation instructions | 1 hr | Test `pip install oss-trust-framework` and verify `oss-trust --version` output matches current release |
+| Create "v0.8.0 documentation" branch | 1 day | Comprehensive review of all `.md`, docstrings, examples, and inline comments for accuracy |
+
+**Success criteria:**
+- ✅ README.md header reports correct version from pyproject.toml
+- ✅ All version numbers in docs match (0.8.0)
+- ✅ Status overview table verified against actual implementation
+- ✅ CHANGELOG.md exists and covers 0.6.x → 0.8.0
+- ✅ CLI help text matches documentation
+- ✅ Installation instructions tested and accurate
+
+---
 
 **Priority:** Critical — Framework produces decisions but developers don't know what to do when they receive a dependency update PR. Blocks adoption; adoption metrics currently unmeasurable without PR bot integration.
 
