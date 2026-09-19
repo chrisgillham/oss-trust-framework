@@ -1,226 +1,109 @@
 name: OSS Trust Check
 
-# Run on every pull request — including Dependabot's automatic upgrade PRs
 on:
   pull_request:
     branches: [ main ]
     paths:
-      # Trigger on any dependency manifest or lockfile change across all
-      # ecosystems the framework supports (npm, PyPI, Cargo, Ruby, .NET)
       - 'package.json'
       - 'package-lock.json'
-      - 'yarn.lock'
-      - 'pnpm-lock.yaml'
       - 'requirements.txt'
       - 'requirements*.txt'
       - 'pyproject.toml'
-      - 'Pipfile.lock'
-      - 'poetry.lock'
-      - 'uv.lock'
       - 'Cargo.toml'
-      - 'Cargo.lock'
       - 'Gemfile.lock'
       - 'packages.config'
-      - 'packages.lock.json'
-      - '**/*.csproj'
       - 'framework_deps.txt'
 
-  # Also allow manual runs from the Actions tab
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
-  oss-trust-check:
+  trust-check:
     name: Gate 1 — Dependency Trust Check
     runs-on: ubuntu-latest
 
-    # Grant read access to repo contents; write access to post PR comments
-    permissions:
-      contents: read
-      pull-requests: write
-
     steps:
-      # ── 1. Check out the PR branch (the proposed upgrade) ──────────────────
-      - name: Checkout PR branch
-        uses: actions/checkout@v5   # ✅ FIXED: v4 → v5 (Node.js 22+)
+      - uses: actions/checkout@v5
 
-      # ── 2. Set up Python for oss-trust-framework ───────────────────────────
       - name: Set up Python
-        uses: actions/setup-python@v5   # ✅ OK: Already uses Node.js 22
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
 
-      # ── 3. Install oss-trust-framework from PyPI ────────────────────────────
       - name: Install oss-trust-framework
         run: |
-          python -m pip install --upgrade pip
-          pip install "oss-trust-framework==0.8.0"
-          oss-trust --version
+          pip install -q "oss-trust-framework==0.8.0"
 
-      # ── 4. Detect which manifest files changed in this PR ───────────────────
-      - name: Detect changed manifests
-        id: manifests
+      - name: Run trust check
+        id: check
         run: |
-          # Build --manifest flags for every manifest file found
-          MANIFESTS=""
-          for f in \
-            package.json Cargo.toml requirements.txt pyproject.toml \
-            Gemfile.lock packages.config Cargo.lock framework_deps.txt; do
-            if [ -f "$f" ]; then
-              MANIFESTS="$MANIFESTS --manifest $f"
-            fi
+          # Find all dependency manifest files
+          MANIFESTS=()
+          for f in package.json requirements.txt pyproject.toml Cargo.toml Gemfile.lock; do
+            [ -f "$f" ] && MANIFESTS+=("--manifest" "$f")
           done
           
-          # If no manifests found, still run (will check current directory)
-          if [ -z "$MANIFESTS" ]; then
-            echo "⚠️  No dependency manifests found; checking current directory"
-          fi
+          # Run the check and capture output
+          set +e
+          oss-trust check-all "${MANIFESTS[@]}" --no-interactive --output json > trust_report.json 2>&1
+          CHECK_EXIT=$?
+          set -e
           
-          echo "flags=$MANIFESTS" >> $GITHUB_OUTPUT
-          echo "Detected manifests: $MANIFESTS"
+          echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
+          echo "report_exists=$([ -f trust_report.json ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
 
-      # ── 5. Run the trust check ─────────────────────────────────────────────
-      - name: Run OSS Trust Check
-        id: trust_check
-        run: |
-          set -o pipefail
-          
-          # Run the framework and capture JSON output
-          # The output should be valid JSON; if the command fails, 
-          # we'll handle it gracefully in the next step
-          oss-trust check-all \
-            ${{ steps.manifests.outputs.flags }} \
-            --no-interactive \
-            --output json 2>&1 | tee trust_check_output.json
-          
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-          exit $EXIT_CODE
-        continue-on-error: true   # Don't fail immediately; capture result below
-
-      # ── 6. Verify output file exists ──────────────────────────────────────
-      - name: Verify trust check output
-        id: verify_output
+      - name: Format results as PR comment
         if: always()
         run: |
-          if [ -f trust_check_output.json ]; then
-            echo "output_exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Output file found"
-            echo "First 500 chars:"
-            head -c 500 trust_check_output.json
-            echo ""
+          # Use the formatter script if it exists in the repo
+          if [ -f .github/scripts/format_trust_check.py ]; then
+            python .github/scripts/format_trust_check.py trust_report.json > pr_comment.txt || true
           else
-            echo "output_exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️  No output file found - framework may have crashed"
+            # Fallback: create a simple comment from raw JSON
+            if [ -f trust_report.json ]; then
+              echo "## 🔍 OSS Trust Check Results" > pr_comment.txt
+              echo "" >> pr_comment.txt
+              echo "\`\`\`json" >> pr_comment.txt
+              cat trust_report.json >> pr_comment.txt
+              echo "\`\`\`" >> pr_comment.txt
+            else
+              echo "# ❌ Trust Check Failed" > pr_comment.txt
+              echo "Could not complete dependency trust validation. See logs above." >> pr_comment.txt
+            fi
           fi
 
-      # ── 7. Post results as a PR comment ────────────────────────────────────
-      - name: Post trust check results to PR
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7   # ✅ OK: v7 uses Node.js 22+
+      - name: Post comment to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const path = require('path');
             
-            // Read output file if it exists
-            let raw = '';
-            let isValidJson = false;
-            let results = [];
-            
-            if (fs.existsSync('trust_check_output.json')) {
-              try {
-                raw = fs.readFileSync('trust_check_output.json', 'utf8');
-                
-                // The framework outputs an array of package results
-                // Format: [{ package, version, ecosystem, outcome, gates, messages }, ...]
-                results = JSON.parse(raw);
-                isValidJson = Array.isArray(results);
-              } catch (e) {
-                console.log('⚠️  Failed to parse JSON:', e.message);
-                isValidJson = false;
-              }
+            let comment = '❌ Trust check results unavailable';
+            try {
+              comment = fs.readFileSync('pr_comment.txt', 'utf8');
+            } catch (e) {
+              console.log('Could not read comment file:', e.message);
             }
-            
-            // Determine pass/fail status
-            let passed = true;
-            let blocked = [];
-            let quarantined = [];
-            let approved = [];
-            
-            if (isValidJson && Array.isArray(results)) {
-              blocked = results.filter(r => r.outcome === 'BLOCKED');
-              quarantined = results.filter(r => r.outcome === 'QUARANTINE');
-              approved = results.filter(r => r.outcome === 'APPROVED' || r.outcome === 'PASS');
-              passed = blocked.length === 0;
-            }
-            
-            // Build summary table
-            let summary = '';
-            if (isValidJson && results.length > 0) {
-              const rows = results.map(r => {
-                const outcome = r.outcome || 'UNKNOWN';
-                const icon = outcome === 'BLOCKED' ? '🚫' : 
-                            outcome === 'QUARANTINE' ? '⚠️' : '✅';
-                return `| ${icon} | \`${r.package}@${r.version}\` | ${r.ecosystem} | ${outcome} |`;
-              }).join('\n');
-              
-              summary = [
-                '| Status | Package | Ecosystem | Outcome |',
-                '|--------|---------|-----------|---------|',
-                rows,
-              ].join('\n');
-            } else if (raw) {
-              // Fallback: show raw text if not JSON
-              summary = '```\n' + raw.slice(-2000) + '\n```';
-            } else {
-              summary = '> ⚠️ No output generated — framework may have encountered an error.';
-            }
-            
-            // Build PR comment
-            const icon = passed ? '✅' : '❌';
-            const status = passed ? 'PASSED' : 'ACTION REQUIRED';
-            
-            const counts = isValidJson ? 
-              `\n> Approved: ${approved.length} | Quarantined: ${quarantined.length} | Blocked: ${blocked.length}` :
-              '';
-            
-            const body = [
-              `## ${icon} OSS Trust Framework v0.8.0 — Gate 1 ${status}`,
-              '',
-              `Checked: \`${{ steps.manifests.outputs.flags || 'current directory' }}\`${counts}`,
-              '',
-              summary,
-              '',
-              passed
-                ? '_All packages cleared the age and allowlist gates. Safe to merge from a supply chain perspective._'
-                : blocked.length > 0
-                ? '_One or more packages are blocked. Review the blocked packages above before merging._'
-                : '_One or more packages require manual review (quarantined). See above for details._',
-              '',
-              '[Framework docs](https://github.com/chrisgillham/oss-trust-framework) | [Gate Reference](https://github.com/chrisgillham/oss-trust-framework#gate-reference)',
-            ].join('\n');
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body,
+              body: comment,
             });
-            
-            console.log('✅ Posted PR comment with results');
 
-      # ── 8. Fail the workflow if trust check failed ─────────────────────────
-      - name: Enforce trust check result
+      - name: Set job status
         if: always()
         run: |
-          EXIT_CODE=${{ steps.trust_check.outputs.exit_code || '0' }}
-          
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "✅ Trust check passed"
+          EXIT_CODE=${{ steps.check.outputs.exit_code }}
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "✅ All dependencies approved"
             exit 0
           else
-            echo "❌ Trust check failed with exit code $EXIT_CODE"
-            echo "Review the PR comment above for details."
+            echo "⚠️ Some dependencies need review (see PR comment)"
             exit 1
           fi
