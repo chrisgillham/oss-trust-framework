@@ -40,13 +40,11 @@ jobs:
           set +e
           
           echo "Running: oss-trust check-all --no-interactive --output json"
-          oss-trust check-all --no-interactive --output json > trust_report.json 2>&1
-          CHECK_EXIT=$?
+          oss-trust check-all --no-interactive --output json 2>&1 | tee trust_report.json
+          CHECK_EXIT=${PIPESTATUS[0]}
           
           echo "Exit code: $CHECK_EXIT"
-          if [ -f trust_report.json ]; then
-            cat trust_report.json
-          fi
+          echo "File size: $(wc -c < trust_report.json 2>/dev/null || echo 'FILE NOT FOUND')"
           
           set -e
           echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
