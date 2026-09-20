@@ -52,16 +52,15 @@ jobs:
       - name: Format results
         if: always()
         run: |
-          if [ -f .github/scripts/format_trust_check.py ]; then
-            python .github/scripts/format_trust_check.py trust_report.json > pr_comment.txt || true
+          if [ -f trust_report.json ]; then
+            echo "## 🔍 OSS Trust Check Results" > pr_comment.txt
+            echo "" >> pr_comment.txt
+            echo '```json' >> pr_comment.txt
+            cat trust_report.json >> pr_comment.txt
+            echo '```' >> pr_comment.txt
           else
-            echo "## OSS Trust Check Results" > pr_comment.txt
-            if [ -f trust_report.json ]; then
-              echo "" >> pr_comment.txt
-              echo '```json' >> pr_comment.txt
-              cat trust_report.json >> pr_comment.txt
-              echo '```' >> pr_comment.txt
-            fi
+            echo "# ❌ No JSON file" > pr_comment.txt
+            echo "trust_report.json was not created" >> pr_comment.txt
           fi
 
       - name: Post comment
