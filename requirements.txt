@@ -1,12 +1,12 @@
 # requirements.txt
-# Direct runtime dependencies for projects using the OSS Trust Framework.
+# Direct runtime dependencies for projects using the OSS Trust Framework. 
 # Pin to exact versions in production; use >= here as a starter template.
 # Run: oss-trust check-all   to validate all packages below against the pipeline.
 #
 # Last updated: 2026-06-13
 # Versions verified clean against Dependabot + OSV as of this date.
 
-httpx==0.27.2
+httpx==0.29.0
 pyyaml==6.0.2
 python-dotenv==1.2.2
 click==8.1.8

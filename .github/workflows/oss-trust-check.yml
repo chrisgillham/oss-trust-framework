@@ -5,15 +5,11 @@ on:
     branches: [ main ]
     paths:
       - 'package.json'
-      - 'package-lock.json'
       - 'requirements.txt'
-      - 'requirements*.txt'
       - 'pyproject.toml'
       - 'Cargo.toml'
       - 'Gemfile.lock'
-      - 'packages.config'
       - 'framework_deps.txt'
-
   workflow_dispatch:
 
 permissions:
@@ -36,59 +32,50 @@ jobs:
       - name: Install oss-trust-framework
         run: |
           pip install -q "oss-trust-framework==0.8.0"
+          oss-trust --version
 
       - name: Run trust check
         id: check
         run: |
-          # Find all dependency manifest files
-          MANIFESTS=()
-          for f in package.json requirements.txt pyproject.toml Cargo.toml Gemfile.lock; do
-            [ -f "$f" ] && MANIFESTS+=("--manifest" "$f")
-          done
-          
-          # Run the check and capture output
           set +e
-          oss-trust check-all "${MANIFESTS[@]}" --no-interactive --output json > trust_report.json 2>&1
-          CHECK_EXIT=$?
-          set -e
           
+          echo "Running: oss-trust check-all --no-interactive --output json"
+          oss-trust check-all --no-interactive --output json > trust_report.json 2>&1
+          CHECK_EXIT=$?
+          
+          echo "Exit code: $CHECK_EXIT"
+          if [ -f trust_report.json ]; then
+            cat trust_report.json
+          fi
+          
+          set -e
           echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
-          echo "report_exists=$([ -f trust_report.json ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
 
-      - name: Format results as PR comment
+      - name: Format results
         if: always()
         run: |
-          # Use the formatter script if it exists in the repo
           if [ -f .github/scripts/format_trust_check.py ]; then
             python .github/scripts/format_trust_check.py trust_report.json > pr_comment.txt || true
           else
-            # Fallback: create a simple comment from raw JSON
+            echo "## OSS Trust Check Results" > pr_comment.txt
             if [ -f trust_report.json ]; then
-              echo "## 🔍 OSS Trust Check Results" > pr_comment.txt
               echo "" >> pr_comment.txt
-              echo "\`\`\`json" >> pr_comment.txt
+              echo '```json' >> pr_comment.txt
               cat trust_report.json >> pr_comment.txt
-              echo "\`\`\`" >> pr_comment.txt
-            else
-              echo "# ❌ Trust Check Failed" > pr_comment.txt
-              echo "Could not complete dependency trust validation. See logs above." >> pr_comment.txt
+              echo '```' >> pr_comment.txt
             fi
           fi
 
-      - name: Post comment to PR
+      - name: Post comment
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            
-            let comment = '❌ Trust check results unavailable';
+            let comment = '❌ No results';
             try {
               comment = fs.readFileSync('pr_comment.txt', 'utf8');
-            } catch (e) {
-              console.log('Could not read comment file:', e.message);
-            }
-            
+            } catch (e) {}
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -96,14 +83,13 @@ jobs:
               body: comment,
             });
 
-      - name: Set job status
-        if: always()
+      - name: Check status
         run: |
           EXIT_CODE=${{ steps.check.outputs.exit_code }}
           if [ "$EXIT_CODE" = "0" ]; then
             echo "✅ All dependencies approved"
             exit 0
           else
-            echo "⚠️ Some dependencies need review (see PR comment)"
+            echo "⚠️ Some dependencies need review"
             exit 1
           fi
