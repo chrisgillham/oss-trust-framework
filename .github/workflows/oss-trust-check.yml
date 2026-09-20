@@ -33,23 +33,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install oss-trust-framework
-        run: |
-          pip install -q "oss-trust-framework==0.8.0"
-
-      - name: Run trust check
+            - name: Run trust check (with debug output)
         id: check
         run: |
-          # Find all dependency manifest files
-          MANIFESTS=()
-          for f in package.json requirements.txt pyproject.toml Cargo.toml Gemfile.lock; do
-            [ -f "$f" ] && MANIFESTS+=("--manifest" "$f")
-          done
-          
-          # Run the check and capture output
           set +e
-          oss-trust check-all "${MANIFESTS[@]}" --no-interactive --output json > trust_report.json 2>&1
-          CHECK_EXIT=$?
+          
+          echo "=== RUNNING OSS-TRUST CHECK-ALL ==="
+          echo "Manifests: ${{ steps.manifests.outputs.flags }}"
+          echo ""
+          
+          oss-trust check-all ${{ steps.manifests.outputs.flags }} \
+            --no-interactive --output json 2>&1 | tee trust_report_raw.txt
+          
+          CHECK_EXIT=${PIPESTATUS[0]}
+          
+          echo ""
+          echo "=== EXIT CODE: $CHECK_EXIT ==="
+          echo ""
+          
+          # Debug: show actual file contents
+          if [ -f trust_report.json ]; then
+            echo "=== trust_report.json exists ==="
+            cat trust_report.json
+          else
+            echo "⚠️ trust_report.json was NOT created"
+          fi
+          
           set -e
           
           echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
