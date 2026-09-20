@@ -5,15 +5,11 @@ on:
     branches: [ main ]
     paths:
       - 'package.json'
-      - 'package-lock.json'
       - 'requirements.txt'
-      - 'requirements*.txt'
       - 'pyproject.toml'
       - 'Cargo.toml'
       - 'Gemfile.lock'
-      - 'packages.config'
       - 'framework_deps.txt'
-
   workflow_dispatch:
 
 permissions:
@@ -33,71 +29,61 @@ jobs:
         with:
           python-version: '3.12'
 
-            - name: Run trust check (with debug output)
+      - name: Install oss-trust-framework
+        run: |
+          pip install -q "oss-trust-framework==0.8.0"
+          oss-trust --version
+
+      - name: Detect manifests and run trust check
         id: check
         run: |
           set +e
           
-          echo "=== RUNNING OSS-TRUST CHECK-ALL ==="
-          echo "Manifests: ${{ steps.manifests.outputs.flags }}"
-          echo ""
+          MANIFESTS=()
+          for f in package.json requirements.txt pyproject.toml Cargo.toml Gemfile.lock; do
+            if [ -f "$f" ]; then
+              MANIFESTS+=("--manifest" "$f")
+              echo "Found: $f"
+            fi
+          done
           
-          oss-trust check-all ${{ steps.manifests.outputs.flags }} \
-            --no-interactive --output json 2>&1 | tee trust_report_raw.txt
+          echo "Running: oss-trust check-all"
+          oss-trust check-all "${MANIFESTS[@]}" --no-interactive --output json > trust_report.json 2>&1
+          CHECK_EXIT=$?
           
-          CHECK_EXIT=${PIPESTATUS[0]}
-          
-          echo ""
-          echo "=== EXIT CODE: $CHECK_EXIT ==="
-          echo ""
-          
-          # Debug: show actual file contents
+          echo "Exit code: $CHECK_EXIT"
           if [ -f trust_report.json ]; then
-            echo "=== trust_report.json exists ==="
             cat trust_report.json
-          else
-            echo "⚠️ trust_report.json was NOT created"
           fi
           
           set -e
-          
           echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
-          echo "report_exists=$([ -f trust_report.json ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
 
-      - name: Format results as PR comment
+      - name: Format results
         if: always()
         run: |
-          # Use the formatter script if it exists in the repo
           if [ -f .github/scripts/format_trust_check.py ]; then
             python .github/scripts/format_trust_check.py trust_report.json > pr_comment.txt || true
           else
-            # Fallback: create a simple comment from raw JSON
+            echo "## OSS Trust Check Results" > pr_comment.txt
             if [ -f trust_report.json ]; then
-              echo "## 🔍 OSS Trust Check Results" > pr_comment.txt
               echo "" >> pr_comment.txt
-              echo "\`\`\`json" >> pr_comment.txt
+              echo '```json' >> pr_comment.txt
               cat trust_report.json >> pr_comment.txt
-              echo "\`\`\`" >> pr_comment.txt
-            else
-              echo "# ❌ Trust Check Failed" > pr_comment.txt
-              echo "Could not complete dependency trust validation. See logs above." >> pr_comment.txt
+              echo '```' >> pr_comment.txt
             fi
           fi
 
-      - name: Post comment to PR
+      - name: Post comment
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            
-            let comment = '❌ Trust check results unavailable';
+            let comment = '❌ No results';
             try {
               comment = fs.readFileSync('pr_comment.txt', 'utf8');
-            } catch (e) {
-              console.log('Could not read comment file:', e.message);
-            }
-            
+            } catch (e) {}
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -105,14 +91,13 @@ jobs:
               body: comment,
             });
 
-      - name: Set job status
-        if: always()
+      - name: Check status
         run: |
           EXIT_CODE=${{ steps.check.outputs.exit_code }}
           if [ "$EXIT_CODE" = "0" ]; then
             echo "✅ All dependencies approved"
             exit 0
           else
-            echo "⚠️ Some dependencies need review (see PR comment)"
+            echo "⚠️ Some dependencies need review"
             exit 1
           fi
