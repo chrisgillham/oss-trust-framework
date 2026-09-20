@@ -6,7 +6,7 @@
 # Last updated: 2026-06-13
 # Versions verified clean against Dependabot + OSV as of this date.
 
-httpx==0.29.0
+httpx==0.30.0
 pyyaml==6.0.2
 python-dotenv==1.2.2
 click==8.1.8
