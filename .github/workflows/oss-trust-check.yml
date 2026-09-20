@@ -34,21 +34,13 @@ jobs:
           pip install -q "oss-trust-framework==0.8.0"
           oss-trust --version
 
-      - name: Detect manifests and run trust check
+           - name: Run trust check
         id: check
         run: |
           set +e
           
-          MANIFESTS=()
-          for f in package.json requirements.txt pyproject.toml Cargo.toml Gemfile.lock; do
-            if [ -f "$f" ]; then
-              MANIFESTS+=("--manifest" "$f")
-              echo "Found: $f"
-            fi
-          done
-          
-          echo "Running: oss-trust check-all"
-          oss-trust check-all "${MANIFESTS[@]}" --no-interactive --output json > trust_report.json 2>&1
+          echo "Running: oss-trust check-all --no-interactive --output json"
+          oss-trust check-all --no-interactive --output json > trust_report.json 2>&1
           CHECK_EXIT=$?
           
           echo "Exit code: $CHECK_EXIT"
