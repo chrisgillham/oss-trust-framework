@@ -34,7 +34,7 @@ jobs:
           pip install -q "oss-trust-framework==0.8.0"
           oss-trust --version
 
-                 - name: Run trust check
+      - name: Run trust check
         id: check
         run: |
           set +e
