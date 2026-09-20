@@ -39,12 +39,14 @@ jobs:
         run: |
           set +e
           
-          echo "Running: oss-trust check-all --no-interactive --output json"
-          oss-trust check-all --no-interactive --output json 2>&1 | tee trust_report.json
-          CHECK_EXIT=${PIPESTATUS[0]}
+          oss-trust check-all --no-interactive --output json > trust_report.json 2>&1
+          CHECK_EXIT=$?
           
           echo "Exit code: $CHECK_EXIT"
-          echo "File size: $(wc -c < trust_report.json 2>/dev/null || echo 'FILE NOT FOUND')"
+          echo "File exists: $([ -f trust_report.json ] && echo 'YES' || echo 'NO')"
+          echo "File size: $(stat -c%s trust_report.json 2>/dev/null || echo 'UNKNOWN')"
+          echo "First 100 chars:"
+          head -c 100 trust_report.json
           
           set -e
           echo "exit_code=$CHECK_EXIT" >> $GITHUB_OUTPUT
